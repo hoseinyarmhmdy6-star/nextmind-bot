@@ -5,18 +5,10 @@ import urllib.request
 import urllib.parse
 from config import GEMINI_API_KEY
 
-# Telegram Credentials Loader
+# Telegram Credentials Loader (Optional alert channel)
 def get_telegram_creds():
-    env_path = r'C:\Users\ark\.gemini\config\credentials.env'
-    token = None
-    chat_id = None
-    if os.path.exists(env_path):
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.startswith('TELEGRAM_BOT_TOKEN_AETHER'):
-                    token = line.split('=', 1)[1].strip().strip('"').strip("'")
-                if line.startswith('TELEGRAM_CHAT_ID_AETHER'):
-                    chat_id = line.split('=', 1)[1].strip().strip('"').strip("'")
+    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     return token, chat_id
 
 TG_TOKEN, TG_CHAT_ID = get_telegram_creds()
@@ -59,13 +51,68 @@ class AIAssistant:
     def __init__(self):
         self.enabled = bool(GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here")
         self.client = None
-        self.model_name = "models/gemini-3.8-flash"
+        self.models_cascade = [
+            "models/gemini-3.5-flash",
+            "models/gemini-flash-lite-latest",
+            "models/gemini-3.1-flash-lite",
+            "models/gemini-3.8-flash"
+        ]
         if self.enabled:
             try:
                 from google import genai
                 self.client = genai.Client(api_key=GEMINI_API_KEY)
             except Exception as e:
                 print(f"[AI Assistant Init Warning] {e}")
+
+    def _smart_fallback_reply(self, user_message: str, username: str = "رفیق") -> str:
+        """پاسخ هوشمند اقتضایی در صورت در دسترس نبودن موقت سرور هوش مصنوعی"""
+        msg = (user_message or "").strip().lower()
+
+        # احوالپرسی
+        if any(w in msg for w in ["چطوری", "خوبی", "حالت", "چه خبر", "احوال"]):
+            return (
+                f"به لطف انرژی شما عالی، {username} عزیز! 🧠⚡\n"
+                f"نکسوس اینجاست و همه‌چیز آماده‌ست تا کارهای ۱۰ ساعته رو با هوش مصنوعی تو ۱۰ دقیقه جمع کنیم! 😉\n"
+                f"اگر پکیج ابزارها و پرامپت‌های پولساز رو می‌خوای، فقط کلمه «کد» رو برام بفرست 🚀"
+            )
+
+        # سلام و درود
+        if any(w in msg for w in ["سلام", "درود", "صبح بخیر", "عصر بخیر", "شب بخیر", "hi", "hello"]):
+            return (
+                f"سلاااام {username} عزیز! روزت پر از انرژی و اتفاق‌های خفن 🌟\n"
+                f"نکسوس اینجاست؛ بگو ببینم چطور می‌تونم کمکت کنم تا با هوش مصنوعی چند قدم جلوتر از بقیه باشی؟ 😉🚀\n"
+                f"برای دریافت آنی پکیج پرامپت‌های پولساز، کلمه «کد» رو همین‌جا بفرست!"
+            )
+
+        # سوال در مورد گوشی / سیستم
+        if any(w in msg for w in ["گوشی", "موبایل", "لپتاپ", "سیستم", "کامپیوتر", "اندروید", "آیفون"]):
+            return (
+                f"خیالت ۱۰۰٪ راحت باشه {username} عزیز! 📱✨\n"
+                f"تمام ابزارها و تکنیک‌هایی که آموزش می‌دیم نسخه وب یا اپلیکیشن دارن و با یه گوشی معمولی هم دقیقاً همون خروجی دلاری و فوق‌العاده رو می‌دن.\n"
+                f"برای اینکه همین الان شروع کنی، کلمه «کد» رو بفرست تا منابع رو برات باز کنم 🚀"
+            )
+
+        # سوال در مورد رایگان بودن یا قیمت
+        if any(w in msg for w in ["رایگان", "هزینه", "پولی", "قیمت", "چنده"]):
+            return (
+                f"آره رفیق! اصل کار نکسوس معرفی ابزارهای کاملاً رایگان یا با سهمیه روزانه رایگانه 🎁\n"
+                f"هدف اینه بدون نیاز به ویزاکارت یا هزینه اضافی، سریع‌ترین نتیجه رو بگیری.\n"
+                f"همین الان کلمه «کد» رو برام بفرست تا پکیج پرامپت‌های رایگان رو تقدیمت کنم ✨"
+            )
+
+        # درخواست پشتیبان یا خرید
+        if any(w in msg for w in ["خرید", "دوره", "ادمین", "پشتیبان", "مشاوره", "همکاری", "تلفن"]):
+            return (
+                f"سلام {username} عزیز! پیامت دریافت و برای ادمین هم علامت‌گذاری شد 📩\n"
+                f"همکاران من در سریع‌ترین زمان برای راهنمایی اختصاصی کنارت هستن. ضمناً برای دریافت پکیج اولیه می‌تونی کلمه «کد» رو بفرستی 🌟"
+            )
+
+        # پیش‌فرض جذاب و انگیزشی
+        return (
+            f"سلام {username} عزیز و پرانرژی! 🧠⚡\n"
+            f"پیامت رسید؛ نکسوس دقیقاً اینجاست تا مسیر درآمدزایی و مهارت‌های پولساز هوش مصنوعی رو برات ساده کنه.\n"
+            f"برای دریافت فوری پکیج ۳۰ ابزار و پرامپت طلایی، کلمه «کد» رو بفرست تا بلافاصله برات ارسال کنم 😉🚀"
+        )
 
     def generate_reply(self, user_message: str, username: str = "عزیز", conversation_history: list = None) -> str:
         """پاسخ چندمرحله‌ای (Multi-turn) هوشمند به عنوان فروشنده نخبه در دایرکت اینستاگرام"""
@@ -79,14 +126,13 @@ class AIAssistant:
             )
 
         if not self.enabled or not self.client:
-            return f"سلام {username} عزیز! 🌸 پیام شما دریافت شد. برای دریافت رایگان پکیج پرامپت‌ها کلمه «کد» رو بفرستید!"
+            return self._smart_fallback_reply(user_message, username)
 
-        try:
-            history_text = ""
-            if conversation_history:
-                history_text = "\nسوابق پیام‌های قبلی این گفتگو:\n" + "\n".join([f"- {msg}" for msg in conversation_history[-4:]]) + "\n"
+        history_text = ""
+        if conversation_history:
+            history_text = "\nسوابق پیام‌های قبلی این گفتگو:\n" + "\n".join([f"- {msg}" for msg in conversation_history[-4:]]) + "\n"
 
-            prompt = f"""
+        prompt = f"""
 {NEXUS_PERSONA}
 {history_text}
 کاربر @{username} در دایرکت پیام زیر را ارسال کرده است:
@@ -96,24 +142,31 @@ class AIAssistant:
 به عنوان «نکسوس»، یک پاسخ جذاب، کاریزماتیک، کوتاه (۲ الی ۴ خط)، بسیار صمیمی و هدایت‌کننده بنویسید.
 تمام ابهامات مخاطب را برطرف کنید و او را با اشتیاق به سمت اقدام (ارسال کلمه «کد» یا بررسی لینک هدیه) راهنمایی کنید.
 اگر حس کردی سوالش خیلی تخصصی یا قصد خرید جدی دارد، به او بگو پیامش را برای ادمین هم علامت‌گذاری کردی تا شخصاً پاسخ دهند.
-فقط متن پیام را بنویسید (بدون سلام و احوالپرسی‌های کش‌دار و کلیشه‌ای).
+مستقیماً به محتوای پیام کاربر پاسخ بده و لحن خودمانی، خودمانی و شاداب داشته باش.
+فقط متن پیام را بنویسید.
 """
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            return response.text.strip() if response and response.text else f"سلام {username} عزیز! پیام قشنگت رسید ✨ جزئیات رو برات فرستادم، حتما چکش کن!"
-        except Exception as e:
-            print(f"[AI DM Error] {e}")
-            return "درود! ممنون از پیامت رفیق، نکسوس همیشه کنارتونه 🚀"
+        # زنجیره چند مدلی (Multi-Model Cascading)
+        for model in self.models_cascade:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                if response and response.text and response.text.strip():
+                    return response.text.strip()
+            except Exception as e:
+                print(f"[AI DM Cascade Warning ({model})] {e}")
+                continue
+
+        # در صورت بروز خطای مقطعی در تمام مدل‌ها، پاسخ هوشمند مبتنی بر نیت ارسال می‌شود
+        return self._smart_fallback_reply(user_message, username)
 
     def generate_comment_reply(self, comment_text: str, author: str, keyword: str = "") -> str:
         """تولید پاسخ عمومی داینامیک، خلاقانه و طنزآمیز زیر هر کامنت بر اساس متن دقیق آن"""
         if not self.enabled or not self.client:
             return f"سلام @{author} عزیز! جزئیات کامل براتون دایرکت ارسال شد 🚀"
 
-        try:
-            prompt = f"""
+        prompt = f"""
 {NEXUS_PERSONA}
 کاربری به نام @{author} زیر پست اینستاگرام کامنت زیر را نوشته است:
 "{comment_text}"
@@ -123,13 +176,17 @@ class AIAssistant:
 در پایان به او بگویید که دایرکتش رو چک کنه چون هدیه یا اطلاعات براش ارسال شده 😉.
 فقط متن پاسخ را بنویسید، بدون گیومه یا توضیحات اضافی.
 """
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            return response.text.strip().replace('"', '') if response and response.text else f"درود بر شما! اطلاعات براتون دایرکت شد 📩"
-        except Exception:
-            return f"درود! اطلاعات مورد نیاز براتون دایرکت شد 📩"
+        for model in self.models_cascade:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                if response and response.text and response.text.strip():
+                    return response.text.strip().replace('"', '')
+            except Exception:
+                continue
+        return f"درود بر شما @{author} عزیز! اطلاعات کامل براتون دایرکت شد 📩"
 
     def generate_reel_script(self, topic: str, goal: str = "جذب لید و کامنت") -> dict:
         """تولید سناریوی کامل ریلز ویدیویی ۳ مرحله‌ای + پرامپت میدجورنی برای کاور"""
@@ -140,37 +197,35 @@ class AIAssistant:
             "cta": "اگه پکیج پرامپت‌های پولساز رو می‌خوای، همین الان زیر این ویدیو کامنت کن «کد» تا دایرکت برات بفرستم!",
             "midjourney_prompt": "Cinematic futuristic AI workspace with glowing blue holographic displays, photorealistic, 8k, hyper-detailed --ar 9:16"
         }
-        if not self.enabled or not self.client:
-            return default_result
-
-        try:
-            prompt = f"""
+        prompt = f"""
 {NEXUS_PERSONA}
-وظیفه: نگارش سناریوی یک ریلز اینستاگرام وایرال و جذاب در حوزه هوش مصنوعی.
-موضوع ویدیو: "{topic}"
-هدف اصلی: "{goal}"
+موضوع ریلز: "{topic}"
+هدف: "{goal}"
 
-خروجی را دقیقاً در قالب فرمت JSON معتبر زیر برگردانید (هیچ متن دیگری قبل یا بعد از JSON نباشد):
+یک سناریوی ۳۰ الی ۵۰ ثانیه‌ای ریلز اینستاگرام در قالب ساختار JSON زیر تولید کنید:
 {{
-  "hook": "متن جذاب قلاب ثانیه ۰ تا ۳ که توجه مخاطب را قفل کند و متن روی تصویر (Text-on-screen)",
-  "visual_direction": "توصیف بصری زاویه دوربین، اکت گوینده یا ابزاری که باید روی مانیتور باز باشد",
-  "body": "دیالوگ‌های اصلی گوینده بین ثانیه ۳ تا ۳۵ (سریع، ریتمیک، بدون حاشیه و کاملاً کاربردی)",
-  "cta": "دعوت به اقدام پایانی ریلز که بگوید زیر ریلز کلمه «کد» را بنویسند تا پکیج پرامپت ارسال شود",
-  "midjourney_prompt": "English Midjourney / Flux prompt to generate the high-CTR reel cover image (9:16 aspect ratio)"
+    "hook": "جمله ۳ ثانیه اول فوق‌العاده کنجکاوکننده و متوقف‌کننده اسکرول",
+    "visual_direction": "توضیح حرکات تصویر، چهره و المان‌های بصری",
+    "body": "متن اصلی سناریو، ساده، کاربردی و هیجان‌انگیز",
+    "cta": "دعوت به اقدام هوشمندانه برای کامنت کردن کلمه کلیدی",
+    "midjourney_prompt": "پرامپت انگلیسی میدجورنی برای کاور جذاب ریلز"
 }}
+فقط JSON معتبر خروجی دهید.
 """
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            text = response.text.strip()
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            return json.loads(text.strip())
-        except Exception as e:
-            print(f"[AI Reel Error] {e}")
-            return default_result
+        for model in self.models_cascade:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                text = response.text.strip()
+                if text.startswith("```"):
+                    text = text.split("```")[1]
+                    if text.startswith("json"):
+                        text = text[4:]
+                return json.loads(text.strip())
+            except Exception as e:
+                continue
+        return default_result
 
 ai_assistant = AIAssistant()
