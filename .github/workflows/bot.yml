@@ -1,0 +1,52 @@
+name: NextMind HQ Autonomous Instagram Bot
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: nextmind-runner
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run NextMind Cloud Engine
+        env:
+          INSTA_USERNAME: ${{ secrets.INSTA_USERNAME }}
+          INSTA_SESSIONID: ${{ secrets.INSTA_SESSIONID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          INSTA_SESSION_JSON: ${{ secrets.INSTA_SESSION_JSON }}
+          RUN_DURATION_MINUTES: 240
+        run:
+          python runner.py
+
+      - name: Trigger Next Relay Cycle
+        if: always()
+        run: |
+          echo "Triggering next autonomous cycle..."
+          curl -s -X POST \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot.yml/dispatches \
+            -d '{"ref":"main"}' || true
