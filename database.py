@@ -1,0 +1,219 @@
+import sqlite3
+from datetime import datetime
+from config import DB_PATH
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 1. Processed Comments Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS processed_comments (
+        comment_id TEXT PRIMARY KEY,
+        post_id TEXT,
+        user_id TEXT,
+        username TEXT,
+        comment_text TEXT,
+        keyword_matched TEXT,
+        dm_sent INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 2. Users / Leads Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS leads (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        is_following INTEGER DEFAULT 0,
+        last_keyword TEXT,
+        lead_magnet_delivered INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 3. Competitor Scraped Accounts Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS competitor_leads (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        competitor_source TEXT,
+        scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        followed_at TIMESTAMP NULL,
+        unfollowed_at TIMESTAMP NULL,
+        liked_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending' -- pending, followed, unfollowed, error
+    )
+    """)
+
+    # 4. DM History & AI Interaction Logs
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS dm_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        username TEXT,
+        sender TEXT, -- 'user', 'bot', 'ai'
+        message_text TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # 5. Processed Inbound DMs Deduplication Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS processed_dms (
+        message_id TEXT PRIMARY KEY,
+        thread_id TEXT,
+        user_id TEXT,
+        username TEXT,
+        message_text TEXT,
+        reply_text TEXT,
+        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def is_dm_processed(message_id: str) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM processed_dms WHERE message_id = ?", (message_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def log_processed_dm(message_id: str, thread_id: str, user_id: str, username: str, message_text: str, reply_text: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO processed_dms (message_id, thread_id, user_id, username, message_text, reply_text)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (message_id, thread_id, user_id, username, message_text, reply_text))
+    cursor.execute("""
+        INSERT INTO dm_logs (user_id, username, sender, message_text)
+        VALUES (?, ?, 'user', ?)
+    """, (user_id, username, message_text))
+    cursor.execute("""
+        INSERT INTO dm_logs (user_id, username, sender, message_text)
+        VALUES (?, ?, 'ai', ?)
+    """, (user_id, username, reply_text))
+    conn.commit()
+    conn.close()
+
+def is_comment_processed(comment_id: str) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM processed_comments WHERE comment_id = ?", (comment_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def log_comment(comment_id: str, post_id: str, user_id: str, username: str, comment_text: str, keyword: str, dm_sent: bool = True):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO processed_comments (comment_id, post_id, user_id, username, comment_text, keyword_matched, dm_sent)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (comment_id, post_id, user_id, username, comment_text, keyword, 1 if dm_sent else 0))
+    conn.commit()
+    conn.close()
+
+def update_user_status(user_id: str, username: str, is_following: bool = False, keyword: str = None, delivered: bool = False):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO leads (user_id, username, is_following, last_keyword, lead_magnet_delivered, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            username=excluded.username,
+            is_following=excluded.is_following,
+            last_keyword=coalesce(excluded.last_keyword, leads.last_keyword),
+            lead_magnet_delivered=excluded.lead_magnet_delivered,
+            updated_at=CURRENT_TIMESTAMP
+    """, (user_id, username, 1 if is_following else 0, keyword, 1 if delivered else 0))
+    conn.commit()
+    conn.close()
+
+def get_user_lead(user_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM leads WHERE user_id = ?", (user_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return dict(res) if res else None
+
+def log_dm(user_id: str, username: str, sender: str, message_text: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO dm_logs (user_id, username, sender, message_text)
+        VALUES (?, ?, ?, ?)
+    """, (user_id, username, sender, message_text))
+    conn.commit()
+    conn.close()
+
+def save_competitor_leads(leads: list, competitor: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    for lead in leads:
+        cursor.execute("""
+            INSERT OR IGNORE INTO competitor_leads (user_id, username, competitor_source, status)
+            VALUES (?, ?, ?, 'pending')
+        """, (str(lead['id']), lead['username'], competitor))
+    conn.commit()
+    conn.close()
+
+def get_pending_competitor_leads(limit: int = 10):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM competitor_leads WHERE status = 'pending' LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def mark_lead_followed(user_id: str, liked_count: int = 0):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE competitor_leads
+        SET status = 'followed', followed_at = CURRENT_TIMESTAMP, liked_count = ?
+        WHERE user_id = ?
+    """, (liked_count, user_id))
+    conn.commit()
+    conn.close()
+
+def get_stats():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM processed_comments")
+    comments_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM leads")
+    leads_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM competitor_leads WHERE status = 'followed'")
+    followed_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM competitor_leads WHERE status = 'pending'")
+    pending_count = cursor.fetchone()[0]
+    conn.close()
+    return {
+        "comments_handled": comments_count,
+        "total_leads": leads_count,
+        "competitor_followed": followed_count,
+        "competitor_pending": pending_count
+    }
+
+def get_all_leads(limit: int = 50):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM leads ORDER BY updated_at DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+# Initialize tables on import
+init_db()
