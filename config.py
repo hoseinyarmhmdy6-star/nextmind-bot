@@ -65,6 +65,18 @@ KEYWORD_TRIGGERS = {
         "reply_text": "سلام رفیق! 🔥 پرامپت‌های تخصصی هوش مصنوعی خدمت شما:\nhttps://nextmind.ir/prompts\n\nموفق و پیروز باشید!",
         "require_follow": True,
     },
+    "استارت": {
+        "reply_text": "درود رفیق! 🎁 تقلب‌نامه ۱۵ ابزار مخفی و پولساز هوش مصنوعی خدمت شما:\nhttps://nextmind.ir/cheatsheet\n\nهر سوالی درباره روش کار با این ابزارها داشتی همین‌جا بپرس تا راهنماییت کنم! 🚀",
+        "require_follow": True,
+    },
+    "جزوه": {
+        "reply_text": "سلام رفیق! 🚀 لینک و آموزش استفاده از ابزار خلاصه‌ساز ویدیوی یوتیوب و پادکست (NoteGPT):\nhttps://notegpt.io\n\nویدیوی ۲ ساعته رو تو ۳۰ ثانیه جزوه و نقشه ذهنی کن! هر سوالی داشتی من اینجام 🧠",
+        "require_follow": True,
+    },
+    "اسلاید": {
+        "reply_text": "سلام دوست عزیز! 🎨 قالب‌ها و لینک دسترسی به ارائه‌ساز سریع Gamma AI:\nhttps://gamma.app\n\nدیگه برای اسلاید و پرزنتیشن وقت تلف نکن! موفق باشی ✨",
+        "require_follow": True,
+    },
 }
 
 FOLLOW_GATE_MESSAGE = (
