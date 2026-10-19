@@ -3,8 +3,12 @@ from datetime import datetime
 from config import DB_PATH
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
     return conn
 
 def init_db():
@@ -77,6 +81,38 @@ def init_db():
     )
     """)
 
+    # 6. Content Scheduling & Publishing Logs
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS published_schedule (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slot_name TEXT,
+        date_str TEXT,
+        media_type TEXT,
+        topic TEXT,
+        media_id TEXT,
+        published_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(slot_name, date_str)
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+def is_slot_published(slot_name: str, date_str: str) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM published_schedule WHERE slot_name = ? AND date_str = ?", (slot_name, date_str))
+    res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def log_published_slot(slot_name: str, date_str: str, media_type: str, topic: str, media_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO published_schedule (slot_name, date_str, media_type, topic, media_id)
+        VALUES (?, ?, ?, ?, ?)
+    """, (slot_name, date_str, media_type, topic, media_id))
     conn.commit()
     conn.close()
 
