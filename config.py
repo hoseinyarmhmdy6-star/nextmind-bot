@@ -142,9 +142,11 @@ TARGET_COMPETITORS = [
 ]
 
 SAFETY_SETTINGS = {
-    "max_follows_per_day": 30,
-    "max_likes_per_day": 50,
+    "max_follows_per_day": 0,  # ممنوعیت مطلق فالو کردن (Zero Outbound Follows)
+    "allow_outbound_follows": False,
+    "max_likes_per_day": 60,
+    "max_story_views_per_day": 120,
     "min_delay_between_actions": 45,  # seconds
     "max_delay_between_actions": 110,  # seconds
-    "unfollow_after_days": 3,
+    "unfollow_after_days": 0,
 }
