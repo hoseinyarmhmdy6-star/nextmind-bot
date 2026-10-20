@@ -1,50 +1,81 @@
 import time
-from database import save_competitor_leads, get_pending_competitor_leads, mark_lead_followed
+import random
+from database import (
+    save_competitor_leads, get_pending_competitor_leads, mark_lead_followed,
+    get_today_followed_count
+)
 from modules.automation.insta_client import insta_manager
-from config import SAFETY_SETTINGS
+from config import SAFETY_SETTINGS, TARGET_COMPETITORS
 
-def scrape_competitor_audience(competitor_username: str, count: int = 50):
+def get_live_target_competitors():
+    """دریافت بلادرنگ لیست رقبای افزوده شده از سرور کلودفلر تا هر پیج جدیدی فوراً وارد چرخه تعامل شود"""
+    try:
+        import urllib.request, json
+        req = urllib.request.Request(
+            "https://nextmind-bot.hoseinyarmhmdy6.workers.dev/api/competitors",
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        res = urllib.request.urlopen(req, timeout=4)
+        comps = json.loads(res.read())
+        if comps and isinstance(comps, list):
+            usernames = [c["username"] for c in comps if c.get("username")]
+            if usernames:
+                return usernames
+    except Exception:
+        pass
+    return TARGET_COMPETITORS
+
+def scrape_competitor_audience(competitor_username: str, count: int = 30):
     """
-    Scrapes the most recent active followers of a target competitor page.
-    Saves them to the database for gradual, safe outreach.
+    استخراج فالوورهای فعال پیج‌های رقیب در حوزه هوش مصنوعی و ذخیره در صف تعامل
     """
     client = insta_manager.client
-    print(f"[Growth] Finding user ID for competitor @{competitor_username}...")
+    print(f"[Growth] بررسی پیج هدف هوش مصنوعی @{competitor_username}...")
     
     try:
         user_id = client.user_id_from_username(competitor_username)
-        print(f"[Growth] Extracting {count} followers from competitor @{competitor_username}...")
+        print(f"[Growth] در حال استخراج {count} مخاطب علاقه‌مند از @{competitor_username}...")
         followers_dict = client.user_followers(user_id, amount=count)
         
         leads = []
         for fid, fuser in followers_dict.items():
-            # Skip private accounts if desired, or keep all
-            leads.append({
-                "id": str(fid),
-                "username": fuser.username
-            })
+            # رد کردن اکانت‌های بدون عکس یا بدون نام کاربری مناسب
+            if not fuser.is_private:
+                leads.append({
+                    "id": str(fid),
+                    "username": fuser.username
+                })
             
         save_competitor_leads(leads, competitor=competitor_username)
-        print(f"[Growth] Successfully saved {len(leads)} target accounts into outreach database!")
+        print(f"[Growth] ✓ تعداد {len(leads)} مخاطب بالقوه از @{competitor_username} ذخیره شد.")
         return leads
     except Exception as e:
-        print(f"[Growth Error] Failed to scrape competitor followers: {e}")
+        print(f"[Growth Error] خطا در دریافت مخاطبان پیج @{competitor_username}: {e}")
         return []
 
-def run_safe_engagement_cycle(batch_size: int = 5, like_posts: bool = True, follow: bool = True):
+def run_safe_growth_tick(max_targets: int = 1):
     """
-    Executes a controlled engagement cycle on pending competitor leads.
-    Employs randomized human-like delays to protect the account reputation.
+    اجرای یک مرحله جذب ارگانیک و ایمن با رعایت کامل سقف روزانه اینستاگرام (Anti-Ban)
     """
-    pending = get_pending_competitor_leads(limit=batch_size)
-    if not pending:
-        print("[Growth] No pending competitor accounts in database queue.")
+    today_followed = get_today_followed_count()
+    max_daily = SAFETY_SETTINGS.get("max_follows_per_day", 30)
+
+    if today_followed >= max_daily:
+        # سقف روزانه پر شده، برای حفظ ۱۰۰٪ امنیت پیج متوقف می‌شود
         return 0
+
+    pending = get_pending_competitor_leads(limit=max_targets)
+    if not pending:
+        # اگر صف خالی است، از لیست رقبای هدف اکانت‌های جدید اضافه شود
+        live_comps = get_live_target_competitors()
+        target_page = random.choice(live_comps)
+        scrape_competitor_audience(target_page, count=25)
+        pending = get_pending_competitor_leads(limit=max_targets)
+        if not pending:
+            return 0
 
     client = insta_manager.client
     engaged_count = 0
-
-    print(f"[Growth] Starting engagement batch for {len(pending)} targeted accounts...")
 
     for target in pending:
         username = target["username"]
@@ -52,36 +83,48 @@ def run_safe_engagement_cycle(batch_size: int = 5, like_posts: bool = True, foll
         liked_count = 0
         
         try:
-            print(f"[Growth] Engaging with @{username}...")
+            print(f"[Growth] 🎯 جذب مخاطب ارگانیک: تعامل امن با @{username}...")
             
-            # 1. Like recent 1-2 posts (shows genuine interest)
-            if like_posts:
-                try:
-                    medias = client.user_medias(int(uid), amount=2)
-                    for media in medias:
-                        client.media_like(media.id)
-                        liked_count += 1
-                        time.sleep(4)
-                except Exception as e:
-                    print(f"[Growth Warning] Couldn't like posts of @{username}: {e}")
+            # ۱. لایک ۱ پست اخیر برای جلب توجه ارگانیک
+            try:
+                medias = client.user_medias(int(uid), amount=1)
+                for media in medias:
+                    client.media_like(media.id)
+                    liked_count += 1
+                    time.sleep(3)
+            except Exception:
+                pass
 
-            # 2. Follow user
-            if follow:
+            # ۲. فالو ایمن کاربر
+            try:
                 client.user_follow(int(uid))
-                print(f"[Growth] Followed @{username} successfully.")
+                print(f"[Growth]  ✓ کاربر @{username} با موفقیت فالو شد.")
+            except Exception as ef:
+                print(f"[Growth]  [خطا در فالو] {ef}")
 
             mark_lead_followed(uid, liked_count=liked_count)
             engaged_count += 1
 
-            # 3. Safe human-like delay
+            try:
+                from monitor_service import push_growth_activity
+                push_growth_activity(
+                    action_type="interaction",
+                    title="تعامل ارگانیک امن با مخاطب رقیب",
+                    desc=f"لایک محتوا و تعامل طبیعی با مخاطب هدف @{username} با رعایت فاصله‌های هوشمند الگوریتم.",
+                    target=f"@{username}",
+                    source="پایشگر زنده اینستاگرام"
+                )
+            except Exception:
+                pass
+
+            # ۳. تأخیر تصادفی شبه‌انسانی برای امنیت کامل
             insta_manager.human_delay(
                 SAFETY_SETTINGS["min_delay_between_actions"],
                 SAFETY_SETTINGS["max_delay_between_actions"]
             )
 
         except Exception as e:
-            print(f"[Growth Error] Error processing @{username}: {e}")
-            time.sleep(10)
+            print(f"[Growth Error] خطا در پردازش @{username}: {e}")
+            mark_lead_followed(uid, liked_count=0)
 
-    print(f"[Growth] Engagement cycle complete. Engaged with {engaged_count} accounts.")
     return engaged_count
