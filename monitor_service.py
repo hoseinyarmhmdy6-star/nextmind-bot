@@ -6,7 +6,9 @@ from colorama import Fore, Style, init
 from config import INSTA_USERNAME, INSTA_PASSWORD, INSTA_SESSIONID, KEYWORD_TRIGGERS, COMMENT_REPLY_VARIATIONS, FOLLOW_GATE_MESSAGE, STORY_MENTION_REPLY
 from database import (
     is_comment_processed, log_comment, get_user_lead, update_user_status,
-    log_dm, get_stats, is_dm_processed, log_processed_dm, has_user_commented_on_post
+    log_dm, get_stats, is_dm_processed, log_processed_dm, has_user_commented_on_post,
+    has_user_received_comment_welcome, mark_user_welcomed_in_comment,
+    has_user_received_dm_welcome, mark_user_welcomed_in_dm
 )
 from modules.automation.insta_client import insta_manager
 from modules.ai_assistant.gemini_bot import ai_assistant
@@ -227,15 +229,24 @@ class InstagramDirectMonitor:
                     except Exception as el:
                         print(Fore.YELLOW + f"  [خطای لایک کامنت] {el}")
 
-                    # ۲. قانون قطعی کاربر: هر نفر زیر یک پست یا ریلز فقط یک‌بار پاسخ دریافت کند
-                    if has_user_commented_on_post(str(media.id), author_id):
-                        print(Fore.YELLOW + f"  ℹ️ به کاربر @{author} قبلاً زیر این پست پاسخ داده شده است. کامنت لایک شد ولی جهت حفظ پرستیژ، پاسخ تکراری ارسال نشد.")
-                        log_comment(cid, str(media.id), author_id, author, c.text, "already_replied", dm_sent=False)
-                        time.sleep(random.randint(2, 5))
+                    # ۲. قانون قطعی: خوش‌آمدگویی کلاً به هر اکانت فقط یک‌بار در تمام پیج داده می‌شود
+                    already_welcomed_in_comment = has_user_received_comment_welcome(author_id, author)
+                    matched_key, target_rule = match_keyword_intent(c.text)
+                    is_question = any(q in c.text for q in ["?", "؟", "چطور", "چطوری", "چگونه", "کجا", "کدوم", "چیه", "چیست", "رایگانه", "هزینه", "ایفون", "آیفون", "اندروید", "اسم"])
+
+                    # اگر کاربر قبلاً خوش‌آمدگویی دریافت کرده است (در این پست یا هر پست دیگر) و کامنت جدید صرفاً نظر/ایموجی است (سوال یا کلمه کلیدی نیست):
+                    if already_welcomed_in_comment and not is_question and not matched_key:
+                        print(Fore.YELLOW + f"  ℹ️ به کاربر @{author} قبلاً در کامنت‌ها خوش‌آمدگویی گفته شده است. کامنت لایک شد ولی پاسخ متنی تکراری داده نشد.")
+                        log_comment(cid, str(media.id), author_id, author, c.text, "already_welcomed", dm_sent=False)
+                        time.sleep(random.randint(2, 4))
                         continue
 
-                    # بررسی کلمه کلیدی
-                    matched_key, target_rule = match_keyword_intent(c.text)
+                    # اگر کاربر زیر همین پست قبلاً پاسخ گرفته و سوالی نپرسیده است:
+                    if has_user_commented_on_post(str(media.id), author_id) and not is_question:
+                        print(Fore.YELLOW + f"  ℹ️ به کاربر @{author} قبلاً زیر این پست پاسخ داده شده است. کامنت لایک شد ولی پاسخ تکراری ارسال نشد.")
+                        log_comment(cid, str(media.id), author_id, author, c.text, "already_replied", dm_sent=False)
+                        time.sleep(random.randint(2, 4))
+                        continue
 
                     # ۳. تولید پاسخ دقیق، خیلی خلاصه و مفید در یک پیام واحد با بررسی کامل سوال و کپشن
                     post_caption = getattr(media, 'caption_text', '') or ""
@@ -252,6 +263,7 @@ class InstagramDirectMonitor:
                     # ارسال ریپلای زیر کامنت
                     try:
                         self.client.media_comment(media.id, reply_text, replied_to_comment_id=int(cid))
+                        mark_user_welcomed_in_comment(author_id, author)
                         print(Fore.GREEN + f"  ✓ پاسخ صمیمانه-رسمی زیر کامنت ارسال شد:\n    \"{reply_text}\"")
                     except Exception as e:
                         print(Fore.RED + f"  [خطا در ارسال کامنت] {e}")
@@ -400,9 +412,11 @@ class InstagramDirectMonitor:
                     time.sleep(random.randint(1, 3))
                     continue
 
-                # حالت ۳: پیام‌های عمومی، احوالپرسی (مثل «سلام»)، سوالات تخصصی و پرزنت فروش با جمینای
+                # حالت ۳: پیام‌های عمومی، احوالپرسی، سوالات تخصصی و گفتگو با جمینای (با رعایت قانون خوش‌آمدگویی تک‌باره)
                 print(Fore.YELLOW + f"\n💬 پیام دایرکت جدید از @{author}: \"{msg_text}\"")
                 print(Fore.CYAN + f"  [*] در حال تولید پاسخ هوشمند توسط نکسوس (Gemini)...")
+
+                is_first_dm = not has_user_received_dm_welcome(author_id, author)
 
                 history = []
                 for m in reversed(t.messages[1:5]):
@@ -410,8 +424,11 @@ class InstagramDirectMonitor:
                         s = "کاربر" if str(m.user_id) != str(self.client.user_id) else "نکسوس"
                         history.append(f"{s}: {m.text.strip()}")
 
-                reply_text = ai_assistant.generate_reply(msg_text, username=author, conversation_history=history)
+                reply_text = ai_assistant.generate_reply(
+                    msg_text, username=author, conversation_history=history, is_first_contact=is_first_dm
+                )
                 insta_manager.safe_direct_send(reply_text, thread_ids=[thread_id])
+                mark_user_welcomed_in_dm(author_id, author)
                 log_processed_dm(msg_id, thread_id, author_id, author, msg_text, reply_text)
                 sync_to_worker_inbox(author, msg_text, reply_text)
                 print(Fore.GREEN + f"  ✓ پاسخ هوشمند به @{author} ارسال شد:\n\"{reply_text}\"\n")
