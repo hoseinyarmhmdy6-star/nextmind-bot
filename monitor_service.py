@@ -9,7 +9,8 @@ from database import (
     log_dm, get_stats, is_dm_processed, log_processed_dm, has_user_commented_on_post,
     has_user_received_comment_welcome, mark_user_welcomed_in_comment,
     has_user_received_dm_welcome, mark_user_welcomed_in_dm,
-    save_active_thread_id, get_all_active_thread_ids
+    save_active_thread_id, get_all_active_thread_ids,
+    save_dynamic_trigger, get_dynamic_trigger_by_media, get_all_dynamic_triggers
 )
 from modules.automation.insta_client import insta_manager
 from modules.ai_assistant.gemini_bot import ai_assistant
@@ -184,6 +185,13 @@ class InstagramDirectMonitor:
                     except Exception as eg:
                         print(Fore.RED + f"[خطای جذب ارگانیک] {eg}")
 
+                # 4. همگام‌سازی و یادگیری کلمات طلایی از استوری‌های فعال پیج (هر ۱۰ دور یک‌بار)
+                if loop_count % 10 == 0:
+                    try:
+                        self.sync_story_triggers()
+                    except Exception:
+                        pass
+
                 # تأخیر سریع و بهینه (۸ تا ۱۴ ثانیه) برای پاسخگویی فوق‌العاده سریع به کاربران در دایرکت
                 sleep_time = random.randint(8, 14)
                 print(Fore.BLACK + Style.BRIGHT + f"[{time.strftime('%H:%M:%S')}] پایش بلادرنگ فعال است. بررسی بعدی تا {sleep_time} ثانیه دیگر...")
@@ -218,6 +226,31 @@ class InstagramDirectMonitor:
         except Exception as e:
             print(Fore.RED + f"  [Live Sync Error] {e}")
 
+    def sync_story_triggers(self):
+        """بررسی خودکار استوری‌های فعال پیج و استخراج کلمات طلایی و پکیج‌ها"""
+        try:
+            stories = self.client.user_stories(self.client.user_id)
+            for s in stories:
+                sid = str(s.id)
+                if not get_dynamic_trigger_by_media(sid):
+                    cap = getattr(s, 'caption_text', '') or ""
+                    if not cap and hasattr(s, 'story_media'):
+                        cap = getattr(s.story_media, 'caption_text', '') or ""
+                    if cap:
+                        extracted = ai_assistant.extract_media_cta_and_package(cap, sid)
+                        if extracted and extracted.get("keyword"):
+                            pkg = extracted.get("package") or KEYWORD_TRIGGERS.get("کد", {}).get("reply_text")
+                            save_dynamic_trigger(
+                                media_id=sid,
+                                keyword=extracted["keyword"],
+                                package_text=pkg,
+                                source_type="story",
+                                caption_snippet=cap[:200]
+                            )
+                            print(Fore.CYAN + f"  🎯 کلمه طلایی «{extracted['keyword']}» از استوری {sid} استخراج شد!")
+        except Exception:
+            pass
+
     def check_latest_comments(self):
         """بررسی تمامی پست‌ها و ریلزها: لایک کردن فوری تمام کامنت‌ها، ارسال پاسخ یکتا و پکیج دایرکت"""
         try:
@@ -242,6 +275,28 @@ class InstagramDirectMonitor:
             medias = unique_medias
             
             for media in medias:
+                media_id_str = str(media.id)
+
+                # استعلام یا استخراج هوشمند کلمه طلایی و پکیج اختصاصی این ریلز/پست در صورت نیاز
+                dyn_trigger = get_dynamic_trigger_by_media(media_id_str)
+                if not dyn_trigger:
+                    try:
+                        cap = getattr(media, 'caption_text', '') or ""
+                        if cap:
+                            extracted = ai_assistant.extract_media_cta_and_package(cap, media_id_str)
+                            if extracted and extracted.get("keyword"):
+                                pkg = extracted.get("package") or KEYWORD_TRIGGERS.get("کد", {}).get("reply_text")
+                                save_dynamic_trigger(
+                                    media_id=media_id_str,
+                                    keyword=extracted["keyword"],
+                                    package_text=pkg,
+                                    source_type="reel" if getattr(media, 'media_type', 0) == 2 else "post",
+                                    caption_snippet=cap[:200]
+                                )
+                                print(Fore.CYAN + f"  🎯 کلمه طلایی «{extracted['keyword']}» از کپشن رسانه {media_id_str} شناسایی و ذخیره شد!")
+                    except Exception as e_ext:
+                        pass
+
                 try:
                     comments = self.client.media_comments(media.id, amount=35)
                 except Exception:
@@ -271,7 +326,7 @@ class InstagramDirectMonitor:
 
                     # ۲. قانون قطعی: خوش‌آمدگویی کلاً به هر اکانت فقط یک‌بار در تمام پیج داده می‌شود
                     already_welcomed_in_comment = has_user_received_comment_welcome(author_id, author)
-                    matched_key, target_rule = match_keyword_intent(c.text)
+                    matched_key, target_rule = match_keyword_intent(c.text, media_id=media_id_str)
                     is_question = is_user_asking_question(c.text)
 
                     # اگر کاربر قبلاً خوش‌آمدگویی دریافت کرده است (در این پست یا هر پست دیگر) و کامنت جدید صرفاً نظر/ایموجی است (سوال یا کلمه کلیدی نیست):
