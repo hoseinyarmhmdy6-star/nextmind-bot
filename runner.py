@@ -46,12 +46,27 @@ try:
     while time.time() < end_time:
         loop_count += 1
         try:
-            # Check DMs every cycle (real-time responsiveness)
+            # 1. Check DMs every cycle (real-time responsiveness)
             monitor.check_direct_messages()
             
-            # Check Comments every 4 cycles (every ~45s)
+            # 2. Check Comments every 4 cycles (every ~45s)
             if loop_count % 4 == 0:
                 monitor.check_latest_comments()
+
+            # 3. Live Sync stats to Cloudflare KV every 8 cycles (~1.5 min)
+            if loop_count % 8 == 0:
+                try:
+                    monitor.sync_live_profile()
+                except Exception as es:
+                    print(f"[Cloud Live Sync Error] {es}")
+
+            # 4. 24/7 Organic Growth & Audience Acquisition from live competitors every 15 cycles (~3 min)
+            if loop_count % 15 == 0:
+                try:
+                    from modules.automation.competitor_growth import run_safe_growth_tick
+                    run_safe_growth_tick(max_targets=1)
+                except Exception as eg:
+                    print(f"[Cloud Growth Error] {eg}")
                 
             # Rest 10-14 seconds between polls
             time.sleep(12)
