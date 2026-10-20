@@ -283,5 +283,74 @@ class AIAssistant:
             return f"سلام و درود @{author} گرامی! خوش آمدید 🌟 بسیار متشکریم از همراهی ارزشمند شما. جهت دریافت پکیج کامل کافیست کلمه «کد» را ارسال فرمایید. ارادتمندیم 🙏✨"
         return f"درود و سپاس فراوان @{author} گرامی! 🌟 پیام شما با دقت بررسی شد. در صورت نیاز به راهنمایی تخصصی در خدمتتان هستیم. ارادتمندیم 🙏✨"
 
+    def extract_media_cta_and_package(self, caption_text: str, media_id: str = None) -> dict:
+        """
+        بررسی عمیق کپشن ریلز، پست یا استوری توسط هوش مصنوعی:
+        استخراج کلمه طلایی مدنظر (CTA) و تولید پکیج تخصصی متناسب با آن برای تحویل در دایرکت
+        """
+        if not caption_text:
+            return {"keyword": "کد", "package": None}
+
+        # ۱. الگوی سریع با Regex برای شکار فوری کلمات طلایی صریح
+        import re
+        patterns = [
+            r"(?:کلمه|عبارت|کلمه‌ی|کد)\s*[«\"'“”](?P<kw>[\w\u0600-\u06FF]{2,15})[»\"'“”]",
+            r"[«\"'“”](?P<kw>[\w\u0600-\u06FF]{2,15})[»\"'“”]\s*(?:رو|توی|را|توی کامنت|کامنت کن|بفرست)",
+            r"(?:کامنت|دایرکت|ارسال|بفرست|بنویس)\s*(?:کن|کنید)?\s*[«\"'“”](?P<kw>[\w\u0600-\u06FF]{2,15})[»\"'“”]"
+        ]
+        found_kw = None
+        for p in patterns:
+            m = re.search(p, caption_text)
+            if m:
+                found_kw = m.group("kw").strip()
+                break
+
+        # ۲. استفاده از هوش مصنوعی برای تولید یا استخراج پکیج و کلمه
+        if not self.enabled or not self.client:
+            return {"keyword": found_kw or "کد", "package": None}
+
+        prompt = f"""
+شما استراتژیست ارشد تولید محتوا و هوش مصنوعی در مجموعه آموزشی NextMind (@nextmind.hq) هستید.
+کپشن زیر مربوط به یکی از جدیدترین ریلزها، پست‌ها یا استوری‌های پیج است:
+\"\"\"{caption_text}\"\"\"
+
+وظایف شما:
+۱. کلمه طلایی و کال تو اکشن (CTA) که ادمین پیج از مخاطبان خواسته در کامنت یا دایرکت بفرستند را با دقت پیدا کنید (مثلاً: «کد»، «اسلاید»، «ابزار»، «اکسل»، «هوش» و...). اگر صریحاً ذکر نشده، مناسب‌ترین و کوتاه‌ترین کلمه (تک‌کلمه‌ای) مرتبط با موضوع اصلی را انتخاب کنید.
+۲. با توجه به محتوا و وعده داده‌شده در کپشن، یک «پکیج متنی اختصاصی، فوق‌العاده باارزش، کامل و کاربردی» برای دایرکت آماده کنید. این پکیج باید شامل:
+   - نام دقیق ابزارها یا سایت‌های معرفی‌شده (بدون لینک خام، فقط آدرس دامین مثل gamma.app یا ideogram.ai).
+   - ۲ تا ۳ نکته یا پرامپت طلایی برای استفاده از آنها.
+   - لحن کاملاً باوقار، صمیمانه-رسمی و در شان برند NextMind.
+
+پاسخ را دقیقاً و صرفاً به صورت JSON معتبر و استاندارد زیر برگردانید:
+{{
+  "keyword": "کلمه طلایی",
+  "package": "متن پکیج آماده دایرکت"
+}}
+"""
+        for model in self.models_cascade:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                if response and response.text and response.text.strip():
+                    raw = response.text.strip()
+                    if raw.startswith("```json"):
+                        raw = raw[7:]
+                    if raw.startswith("```"):
+                        raw = raw[3:]
+                    if raw.endswith("```"):
+                        raw = raw[:-3]
+                    import json
+                    parsed = json.loads(raw.strip())
+                    kw = parsed.get("keyword", found_kw or "کد").strip()
+                    pkg = parsed.get("package")
+                    return {"keyword": kw, "package": pkg}
+            except Exception as e:
+                print(f"[AI CTA Extractor Warning ({model})] {e}")
+                continue
+
+        return {"keyword": found_kw or "کد", "package": None}
+
 # نمونه سینگلتون برای استفاده در تمام ماژول‌ها
 ai_assistant = AIAssistant()
