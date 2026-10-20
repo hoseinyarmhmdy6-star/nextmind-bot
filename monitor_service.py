@@ -6,7 +6,7 @@ from colorama import Fore, Style, init
 from config import INSTA_USERNAME, INSTA_PASSWORD, INSTA_SESSIONID, KEYWORD_TRIGGERS, COMMENT_REPLY_VARIATIONS, FOLLOW_GATE_MESSAGE
 from database import (
     is_comment_processed, log_comment, get_user_lead, update_user_status,
-    log_dm, get_stats, is_dm_processed, log_processed_dm
+    log_dm, get_stats, is_dm_processed, log_processed_dm, has_user_commented_on_post
 )
 from modules.automation.insta_client import insta_manager
 from modules.ai_assistant.gemini_bot import ai_assistant
@@ -227,10 +227,17 @@ class InstagramDirectMonitor:
                     except Exception as el:
                         print(Fore.YELLOW + f"  [خطای لایک کامنت] {el}")
 
+                    # ۲. قانون قطعی کاربر: هر نفر زیر یک پست یا ریلز فقط یک‌بار پاسخ دریافت کند
+                    if has_user_commented_on_post(str(media.id), author_id):
+                        print(Fore.YELLOW + f"  ℹ️ به کاربر @{author} قبلاً زیر این پست پاسخ داده شده است. کامنت لایک شد ولی جهت حفظ پرستیژ، پاسخ تکراری ارسال نشد.")
+                        log_comment(cid, str(media.id), author_id, author, c.text, "already_replied", dm_sent=False)
+                        time.sleep(random.randint(2, 5))
+                        continue
+
                     # بررسی کلمه کلیدی
                     matched_key, target_rule = match_keyword_intent(c.text)
 
-                    # ۲. تولید پاسخ فوق‌العاده صمیمی و جذاب با هوش مصنوعی نکسوس
+                    # ۳. تولید پاسخ صمیمانه ولی رسمی و باوقار با هوش مصنوعی نکسوس
                     try:
                         reply_text = ai_assistant.generate_comment_reply(c.text, author, keyword=matched_key or "")
                     except Exception:
@@ -242,7 +249,7 @@ class InstagramDirectMonitor:
                     # ارسال ریپلای زیر کامنت
                     try:
                         self.client.media_comment(media.id, reply_text, replied_to_comment_id=int(cid))
-                        print(Fore.GREEN + f"  ✓ پاسخ صمیمی زیر کامنت ارسال شد:\n    \"{reply_text}\"")
+                        print(Fore.GREEN + f"  ✓ پاسخ صمیمانه-رسمی زیر کامنت ارسال شد:\n    \"{reply_text}\"")
                     except Exception as e:
                         print(Fore.RED + f"  [خطا در ارسال کامنت] {e}")
 
