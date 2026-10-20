@@ -8,7 +8,8 @@ from database import (
     is_comment_processed, log_comment, get_user_lead, update_user_status,
     log_dm, get_stats, is_dm_processed, log_processed_dm, has_user_commented_on_post,
     has_user_received_comment_welcome, mark_user_welcomed_in_comment,
-    has_user_received_dm_welcome, mark_user_welcomed_in_dm
+    has_user_received_dm_welcome, mark_user_welcomed_in_dm,
+    save_active_thread_id, get_all_active_thread_ids
 )
 from modules.automation.insta_client import insta_manager
 from modules.ai_assistant.gemini_bot import ai_assistant
@@ -361,24 +362,49 @@ class InstagramDirectMonitor:
         """پایش صندوق دایرکت برای پاسخ به سوالات با هوش مصنوعی، تایید فالو و ارسال کلمات کلیدی"""
         try:
             threads = []
-            try:
-                threads.extend(self.client.direct_threads(amount=8))
-            except Exception:
-                pass
-
-            try:
-                threads.extend(self.client.direct_pending_inbox(amount=8))
-            except Exception:
-                pass
-
-            # حذف شناسه‌های تکراری تردها
             seen_tids = set()
-            unique_threads = []
-            for t in threads:
-                if t.id not in seen_tids:
-                    seen_tids.add(t.id)
-                    unique_threads.append(t)
-            threads = unique_threads
+
+            # ۱. پایش بلادرنگ صندوق پیام‌های در انتظار (Pending Inbox - تمام کاربران جدید)
+            try:
+                pending = self.client.direct_pending_inbox(amount=10)
+                for pt in pending:
+                    try:
+                        self.client.direct_pending_approve(pt.id)
+                        u_name = pt.users[0].username if pt.users else ""
+                        u_id = str(pt.users[0].pk) if pt.users else ""
+                        save_active_thread_id(str(pt.id), u_name, u_id)
+                    except Exception:
+                        pass
+                    if str(pt.id) not in seen_tids:
+                        seen_tids.add(str(pt.id))
+                        threads.append(pt)
+            except Exception:
+                pass
+
+            # ۲. پایش صندوق پیام‌های اصلی
+            try:
+                inbox_threads = self.client.direct_threads(amount=8)
+                for it in inbox_threads:
+                    if str(it.id) not in seen_tids:
+                        seen_tids.add(str(it.id))
+                        threads.append(it)
+            except Exception:
+                pass
+
+            # ۳. پایش مستقیم گفتگوهای فعال ثبت‌شده در دیتابیس (جلوگیری قطعی از جا ماندن پیام‌ها)
+            try:
+                known_tids = get_all_active_thread_ids(limit=15)
+                for tid in known_tids:
+                    if str(tid) not in seen_tids:
+                        try:
+                            t = self.client.direct_thread(tid)
+                            if t and t.messages:
+                                seen_tids.add(str(tid))
+                                threads.append(t)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
             for t in threads:
                 if not t.messages:
@@ -391,17 +417,33 @@ class InstagramDirectMonitor:
 
                 item_type = getattr(last_msg, 'item_type', '')
                 msg_text = (last_msg.text or "").strip()
-                if not msg_text and item_type in ['story_share', 'clip']:
-                    msg_text = "استوری منشن شما"
-
-                if not msg_text:
-                    continue
-
-                msg_text_lower = msg_text.lower()
                 author_id = str(last_msg.user_id)
                 author = t.users[0].username if t.users else "کاربر"
                 msg_id = str(last_msg.id)
                 thread_id = str(t.id)
+
+                # ذخیره شناسه ترد فعال برای پایش مستمر در دوره‌های بعدی
+                save_active_thread_id(thread_id, author, author_id)
+
+                # مدیریت هوشمند پیام‌های غیرمتنی و اشتراک‌گذاری‌ها
+                is_media_share = item_type in ['clip', 'media_share', 'reel_share', 'generic_xma', 'xma_share', 'felix_share']
+                is_story_mention = any(w in (msg_text or "").lower() for w in ["mentioned you in their story", "استوری شما را به اشتراک گذاشت", "شما را در استوری منشن کرد"]) or item_type == 'story_share'
+                is_voice_message = item_type == 'voice_media'
+                is_photo_message = item_type in ['media', 'visual_media']
+
+                if not msg_text:
+                    if is_story_mention:
+                        msg_text = "استوری منشن شما"
+                    elif is_media_share:
+                        msg_text = "اشتراک‌گذاری ریلز و پست"
+                    elif is_voice_message:
+                        msg_text = "پیام صوتی"
+                    elif is_photo_message:
+                        msg_text = "تصویر ارسالی"
+                    else:
+                        msg_text = "پیام رسانه‌ای"
+
+                msg_text_lower = msg_text.lower()
 
                 # جلوگیری از پاسخ تکراری به یک پیام
                 if is_dm_processed(msg_id):
@@ -425,12 +467,25 @@ class InstagramDirectMonitor:
                         continue
 
                 # حالت ۱.۵: استوری منشن (پاسخ VIP و قدردانی از بازنشر پیج در استوری)
-                if any(w in msg_text_lower for w in ["mentioned you in their story", "استوری شما را به اشتراک گذاشت", "شما را در استوری منشن کرد"]) or getattr(last_msg, 'item_type', '') in ['story_share', 'clip']:
+                if is_story_mention:
                     insta_manager.safe_direct_send(STORY_MENTION_REPLY, thread_ids=[thread_id])
                     update_user_status(author_id, author, is_following=True, keyword="story_mention", delivered=True)
                     log_processed_dm(msg_id, thread_id, author_id, author, msg_text, STORY_MENTION_REPLY)
                     sync_to_worker_inbox(author, msg_text, STORY_MENTION_REPLY)
                     print(Fore.GREEN + f"  ✓ پکیج VIP قدردانی استوری منشن برای @{author} در دایرکت ارسال شد!")
+                    time.sleep(random.randint(1, 3))
+                    continue
+
+                # حالت ۱.۷: اشتراک‌گذاری ریلز یا پست در دایرکت (تحویل خودکار پکیج یا راهنمایی فوری)
+                if is_media_share:
+                    rule = KEYWORD_TRIGGERS.get("کد")
+                    res = generate_reward_unlocked_message(author, rule['reply_text'], keyword="کد")
+                    insta_manager.safe_direct_send(res, thread_ids=[thread_id])
+                    update_user_status(author_id, author, is_following=True, keyword="کد", delivered=True)
+                    mark_user_welcomed_in_dm(author_id, author)
+                    log_processed_dm(msg_id, thread_id, author_id, author, msg_text, res)
+                    sync_to_worker_inbox(author, msg_text, res)
+                    print(Fore.GREEN + f"  🚀 پکیج اختصاصی برای اشتراک‌گذاری ریلز توسط @{author} تحویل داده شد!")
                     time.sleep(random.randint(1, 3))
                     continue
 
