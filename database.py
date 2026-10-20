@@ -224,6 +224,14 @@ def mark_lead_followed(user_id: str, liked_count: int = 0):
     conn.commit()
     conn.close()
 
+def get_today_followed_count() -> int:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM competitor_leads WHERE status = 'followed' AND date(followed_at) = date('now')")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
 def get_stats():
     conn = get_connection()
     cursor = conn.cursor()
