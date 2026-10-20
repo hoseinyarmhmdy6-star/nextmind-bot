@@ -95,6 +95,24 @@ def init_db():
     )
     """)
 
+    # 7. User Lifetime Welcome Tracking (قانون طلایی: خوش‌آمدگویی کلاً یک‌بار به هر اکانت)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_welcomes (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        welcomed_in_comment INTEGER DEFAULT 0,
+        welcomed_in_dm INTEGER DEFAULT 0,
+        comment_welcome_at TIMESTAMP NULL,
+        dm_welcome_at TIMESTAMP NULL
+    )
+    """)
+
+    # بارگذاری اولیه کاربرانی که قبلاً خوش‌آمدگویی دریافت کرده‌اند
+    cursor.execute("""
+        INSERT OR IGNORE INTO user_welcomes (user_id, username, welcomed_in_comment, comment_welcome_at)
+        SELECT user_id, username, 1, created_at FROM processed_comments WHERE keyword_matched NOT IN ('already_replied', 'already_welcomed')
+    """)
+
     conn.commit()
     conn.close()
     
@@ -210,11 +228,80 @@ def has_user_commented_on_post(post_id: str, user_id: str) -> bool:
     cursor = conn.cursor()
     cursor.execute("""
         SELECT 1 FROM processed_comments 
-        WHERE post_id = ? AND user_id = ? AND keyword_matched != 'already_replied'
+        WHERE post_id = ? AND user_id = ? AND keyword_matched NOT IN ('already_replied', 'already_welcomed')
     """, (str(post_id), str(user_id)))
     res = cursor.fetchone()
     conn.close()
     return res is not None
+
+def has_user_received_comment_welcome(user_id: str, username: str = None) -> bool:
+    """بررسی اینکه آیا کاربر تا کنون در کل پیج خوش‌آمدگویی کامنت دریافت کرده است (قانون یکبار خوش‌آمدگویی در کامنت)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 1 FROM user_welcomes 
+        WHERE (user_id = ? OR (username IS NOT NULL AND username != '' AND username = ?)) AND welcomed_in_comment = 1
+    """, (str(user_id), str(username) if username else ""))
+    res = cursor.fetchone()
+    if not res:
+        # بررسی تکمیلی در لاگ کامنت‌های قبلی
+        cursor.execute("""
+            SELECT 1 FROM processed_comments 
+            WHERE (user_id = ? OR (username IS NOT NULL AND username != '' AND username = ?)) 
+            AND keyword_matched NOT IN ('already_replied', 'already_welcomed')
+        """, (str(user_id), str(username) if username else ""))
+        res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def mark_user_welcomed_in_comment(user_id: str, username: str = None):
+    """ثبت قطعی دریافت خوش‌آمدگویی کامنت برای کاربر تا در هیچ پستی پیام تکراری ارسال نشود"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO user_welcomes (user_id, username, welcomed_in_comment, comment_welcome_at)
+        VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET 
+            welcomed_in_comment = 1,
+            username = CASE WHEN ? != '' THEN ? ELSE username END,
+            comment_welcome_at = CURRENT_TIMESTAMP
+    """, (str(user_id), username or "", username or "", username or ""))
+    conn.commit()
+    conn.close()
+
+def has_user_received_dm_welcome(user_id: str, username: str = None) -> bool:
+    """بررسی اینکه آیا کاربر تا کنون پیام خوش‌آمدگویی اولیه در دایرکت دریافت کرده است یا خیر"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 1 FROM user_welcomes 
+        WHERE (user_id = ? OR (username IS NOT NULL AND username != '' AND username = ?)) AND welcomed_in_dm = 1
+    """, (str(user_id), str(username) if username else ""))
+    res = cursor.fetchone()
+    if not res:
+        # بررسی سوابق دایرکت قبلی
+        cursor.execute("""
+            SELECT 1 FROM dm_logs 
+            WHERE (user_id = ? OR (username IS NOT NULL AND username != '' AND username = ?)) AND sender = 'ai'
+        """, (str(user_id), str(username) if username else ""))
+        res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def mark_user_welcomed_in_dm(user_id: str, username: str = None):
+    """ثبت دریافت خوش‌آمدگویی اولیه در دایرکت"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO user_welcomes (user_id, username, welcomed_in_dm, dm_welcome_at)
+        VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET 
+            welcomed_in_dm = 1,
+            username = CASE WHEN ? != '' THEN ? ELSE username END,
+            dm_welcome_at = CURRENT_TIMESTAMP
+    """, (str(user_id), username or "", username or "", username or ""))
+    conn.commit()
+    conn.close()
 
 def log_comment(comment_id: str, post_id: str, user_id: str, username: str, comment_text: str, keyword: str, dm_sent: bool = True):
     conn = get_connection()
