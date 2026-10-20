@@ -107,10 +107,26 @@ def init_db():
     )
     """)
 
+    # 8. Active Direct Threads Tracking (پایش بی‌نقص و تضمینی تمامی گفتگوهای دایرکت)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS active_threads (
+        thread_id TEXT PRIMARY KEY,
+        username TEXT,
+        user_id TEXT,
+        last_interacted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # بارگذاری اولیه کاربرانی که قبلاً خوش‌آمدگویی دریافت کرده‌اند
     cursor.execute("""
         INSERT OR IGNORE INTO user_welcomes (user_id, username, welcomed_in_comment, comment_welcome_at)
         SELECT user_id, username, 1, created_at FROM processed_comments WHERE keyword_matched NOT IN ('already_replied', 'already_welcomed')
+    """)
+
+    # بارگذاری اولیه ترد‌های فعال موجود
+    cursor.execute("""
+        INSERT OR IGNORE INTO active_threads (thread_id, username, user_id, last_interacted_at)
+        SELECT thread_id, username, user_id, MAX(processed_at) FROM processed_dms WHERE thread_id IS NOT NULL AND thread_id != '' GROUP BY thread_id
     """)
 
     conn.commit()
@@ -211,8 +227,41 @@ def log_processed_dm(message_id: str, thread_id: str, user_id: str, username: st
         INSERT INTO dm_logs (user_id, username, sender, message_text)
         VALUES (?, ?, 'ai', ?)
     """, (user_id, username, reply_text))
+    if thread_id:
+        cursor.execute("""
+            INSERT INTO active_threads (thread_id, username, user_id, last_interacted_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(thread_id) DO UPDATE SET
+                username = CASE WHEN ? != '' THEN ? ELSE username END,
+                user_id = CASE WHEN ? != '' THEN ? ELSE user_id END,
+                last_interacted_at = CURRENT_TIMESTAMP
+        """, (str(thread_id), username or "", user_id or "", username or "", username or "", user_id or "", user_id or ""))
     conn.commit()
     conn.close()
+
+def save_active_thread_id(thread_id: str, username: str = "", user_id: str = ""):
+    if not thread_id:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO active_threads (thread_id, username, user_id, last_interacted_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(thread_id) DO UPDATE SET
+            username = CASE WHEN ? != '' THEN ? ELSE username END,
+            user_id = CASE WHEN ? != '' THEN ? ELSE user_id END,
+            last_interacted_at = CURRENT_TIMESTAMP
+    """, (str(thread_id), username or "", user_id or "", username or "", username or "", user_id or "", user_id or ""))
+    conn.commit()
+    conn.close()
+
+def get_all_active_thread_ids(limit: int = 25) -> list:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT thread_id FROM active_threads ORDER BY last_interacted_at DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [str(r["thread_id"]) for r in rows if r["thread_id"]]
 
 def is_comment_processed(comment_id: str) -> bool:
     conn = get_connection()
