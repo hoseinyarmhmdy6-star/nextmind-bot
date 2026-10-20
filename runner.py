@@ -63,8 +63,8 @@ try:
                 except Exception as es:
                     print(f"[Cloud Live Sync Error] {es}")
 
-            # 4. 24/7 Organic Growth & Audience Acquisition from live competitors every 15 cycles (~3 min)
-            if loop_count % 15 == 0:
+            # 4. 24/7 Organic Growth & High-Impact Audience Acquisition from live competitors every 4 cycles (~50s)
+            if loop_count % 4 == 0:
                 try:
                     from modules.automation.competitor_growth import run_safe_growth_tick
                     run_safe_growth_tick(max_targets=1)
