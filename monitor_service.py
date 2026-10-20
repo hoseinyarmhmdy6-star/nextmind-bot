@@ -3,7 +3,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 import time
 import random
 from colorama import Fore, Style, init
-from config import INSTA_USERNAME, INSTA_PASSWORD, INSTA_SESSIONID, KEYWORD_TRIGGERS, COMMENT_REPLY_VARIATIONS, FOLLOW_GATE_MESSAGE
+from config import INSTA_USERNAME, INSTA_PASSWORD, INSTA_SESSIONID, KEYWORD_TRIGGERS, COMMENT_REPLY_VARIATIONS, FOLLOW_GATE_MESSAGE, STORY_MENTION_REPLY
 from database import (
     is_comment_processed, log_comment, get_user_lead, update_user_status,
     log_dm, get_stats, is_dm_processed, log_processed_dm, has_user_commented_on_post
@@ -345,6 +345,16 @@ class InstagramDirectMonitor:
                         print(Fore.GREEN + f"  ✓ کاربر @{author} با تایید هوشمند فالو قفل محتوای «{kw}» را باز کرد!")
                         time.sleep(random.randint(1, 3))
                         continue
+
+                # حالت ۱.۵: استوری منشن (پاسخ VIP و قدردانی از بازنشر پیج در استوری)
+                if any(w in msg_text_lower for w in ["mentioned you in their story", "استوری شما را به اشتراک گذاشت", "شما را در استوری منشن کرد"]) or getattr(last_msg, 'item_type', '') in ['story_share', 'clip']:
+                    insta_manager.safe_direct_send(STORY_MENTION_REPLY, thread_ids=[thread_id])
+                    update_user_status(author_id, author, is_following=True, keyword="story_mention", delivered=True)
+                    log_processed_dm(msg_id, thread_id, author_id, author, msg_text, STORY_MENTION_REPLY)
+                    sync_to_worker_inbox(author, msg_text, STORY_MENTION_REPLY)
+                    print(Fore.GREEN + f"  ✓ پکیج VIP قدردانی استوری منشن برای @{author} در دایرکت ارسال شد!")
+                    time.sleep(random.randint(1, 3))
+                    continue
 
                 # حالت ۲: ارسال مستقیم کلمه کلیدی، مترادف‌ها یا غلط‌های املایی در دایرکت
                 matched_kw, matched_rule = match_keyword_intent(msg_text)
