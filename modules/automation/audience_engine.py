@@ -95,10 +95,10 @@ def generate_follow_gate_message(author: str, keyword: str) -> str:
     """
     return (
         f"سلام {author} عزیز! 🌟\n\n"
-        f"هدیه و دسترسی اختصاصی «{keyword}» برات آماده شد! 🎁\n\n"
-        f"برای اینکه بتونم لینک مستقیم و بدون محدودیت رو برات باز کنم، لطفاً ابتدا عضو پیج ما (@{INSTA_USERNAME}) شو.\n\n"
-        f"۱. دکمه Follow رو بالای صفحه (@{INSTA_USERNAME}) بزن.\n"
-        f"۲. بعد همین‌جا یک کلمه بفرست: «فالو کردم» تا بلافاصله قفل برات باز بشه! ❤️🚀"
+        f"پکیج اختصاصی و کاربردی «{keyword}» برات آماده شد! 🎁\n\n"
+        f"برای دریافت فوری این پکیج ارزشمند، لطفاً ابتدا پیج ما (@{INSTA_USERNAME}) رو فالو کن:\n\n"
+        f"۱. دکمه Follow رو بالای پیج (@{INSTA_USERNAME}) بزن.\n"
+        f"۲. بعد همین‌جا بفرست: «فالو کردم» تا بلافاصله پکیج متنی کامل برات ارسال بشه! ❤️🚀"
     )
 
 def generate_reward_unlocked_message(author: str, reply_text: str, keyword: str = "") -> str:
@@ -108,7 +108,7 @@ def generate_reward_unlocked_message(author: str, reply_text: str, keyword: str 
     kw_title = f" «{keyword}»" if keyword else ""
     return (
         f"خیلی خوش اومدی {author} عزیز! همراهیت با NextMind باعث افتخاره ❤️\n"
-        f"قفل دسترسی{kw_title} با موفقیت برات باز شد:\n\n"
+        f"پکیج اختصاصی{kw_title} تقدیم شما:\n\n"
         f"{reply_text}\n\n"
-        f"📌 راستی رفیق، هر سوالی درباره اجرای این ابزار یا آموزش‌های بعدی داشتی، همین‌جا مستقیم از من بپرس تا کمکت کنم! 😉⚡"
+        f"📌 راستی رفیق، هر سوالی درباره اجرای این تکنیک‌ها یا پرامپت‌ها داشتی، همین‌جا مستقیم از من بپرس تا کمکت کنم! 😉⚡"
     )
