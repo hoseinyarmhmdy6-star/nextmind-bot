@@ -155,8 +155,8 @@ class InstagramDirectMonitor:
                 if loop_count % 3 == 0:
                     self.check_latest_comments()
 
-                # 3. جذب ارگانیک و تعامل مداوم با مخاطبان هدف هوش مصنوعی (هر ۱۵ دور یک‌بار، حدود ۲.۵ دقیقه)
-                if loop_count % 15 == 0:
+                # 3. جذب شدید و ارگانیک: تعامل مداوم با مخاطبان فعال رقبای هوش مصنوعی (هر ۴ دور یک‌بار، حدود هر ۴۵ ثانیه)
+                if loop_count % 4 == 0:
                     try:
                         run_safe_growth_tick(max_targets=1)
                     except Exception as eg:
