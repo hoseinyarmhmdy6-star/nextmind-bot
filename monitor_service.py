@@ -249,12 +249,20 @@ class InstagramDirectMonitor:
                     # ۳. ارسال دایرکت (در صورت وجود کلمه کلیدی)
                     dm_sent = False
                     if matched_key and target_rule:
+                        # 🛡️ قانون طلایی ضداسپم: جلوگیری قطعی از ارسال پیام‌های تکراری و بی‌مورد به مخاطبان
+                        existing_lead = get_user_lead(author_id)
+                        if (existing_lead and existing_lead.get("lead_magnet_delivered")) or author.lower() in ["ravan.data", "ravandata"]:
+                            print(Fore.YELLOW + f"  ⚠️ کاربر @{author} قبلاً پکیج را در دایرکت دریافت کرده است. جهت حفظ احترام به مخاطب و جلوگیری از دفع کاربر، دایرکت مجدد ارسال نشد.")
+                            log_comment(cid, str(media.id), author_id, author, c.text, matched_key, dm_sent=False)
+                            time.sleep(random.randint(3, 6))
+                            continue
+
                         is_following = False
                         try:
                             friendship = self.client.user_friendship_v1(author_id)
                             is_following = bool(friendship.followed_by)
                         except Exception as e:
-                            lead = get_user_lead(author_id)
+                            lead = existing_lead
                             is_following = lead["is_following"] if lead else False
 
                         if target_rule.get("require_follow", True) and not is_following:
