@@ -117,6 +117,19 @@ def init_db():
     )
     """)
 
+    # 9. Dynamic Post & Story Triggers (استخراج و نگهداری خودکار کلمات طلایی و پکیج‌های ریلز و استوری)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS dynamic_triggers (
+        media_id TEXT PRIMARY KEY,
+        keyword TEXT,
+        aliases TEXT,
+        package_text TEXT,
+        source_type TEXT DEFAULT 'reel',
+        caption_snippet TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # بارگذاری اولیه کاربرانی که قبلاً خوش‌آمدگویی دریافت کرده‌اند
     cursor.execute("""
         INSERT OR IGNORE INTO user_welcomes (user_id, username, welcomed_in_comment, comment_welcome_at)
@@ -262,6 +275,46 @@ def get_all_active_thread_ids(limit: int = 25) -> list:
     rows = cursor.fetchall()
     conn.close()
     return [str(r["thread_id"]) for r in rows if r["thread_id"]]
+
+def save_dynamic_trigger(media_id: str, keyword: str, package_text: str, aliases: str = "", source_type: str = "reel", caption_snippet: str = ""):
+    """ذخیره یا به‌روزرسانی کلمه طلایی و پکیج استخراج‌شده از ریلز، پست یا استوری"""
+    if not media_id or not keyword:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO dynamic_triggers (media_id, keyword, aliases, package_text, source_type, caption_snippet, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(media_id) DO UPDATE SET
+            keyword = excluded.keyword,
+            aliases = excluded.aliases,
+            package_text = excluded.package_text,
+            source_type = excluded.source_type,
+            caption_snippet = excluded.caption_snippet,
+            updated_at = CURRENT_TIMESTAMP
+    """, (str(media_id), keyword.strip().lower(), aliases, package_text, source_type, caption_snippet[:300]))
+    conn.commit()
+    conn.close()
+
+def get_dynamic_trigger_by_media(media_id: str) -> dict:
+    """دریافت کلمه طلایی و پکیج اختصاصی متصل به یک ریلز یا پست خاص"""
+    if not media_id:
+        return None
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM dynamic_triggers WHERE media_id = ?", (str(media_id),))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_all_dynamic_triggers() -> list:
+    """دریافت لیست تمامی کلمات طلایی فعال استخراج‌شده از ریلزها و استوری‌ها"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM dynamic_triggers ORDER BY updated_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 def is_comment_processed(comment_id: str) -> bool:
     conn = get_connection()
