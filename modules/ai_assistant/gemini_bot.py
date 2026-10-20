@@ -52,10 +52,10 @@ class AIAssistant:
         self.enabled = bool(GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here")
         self.client = None
         self.models_cascade = [
-            "models/gemini-3.5-flash",
+            "models/gemini-2.5-flash",
+            "models/gemini-flash-latest",
             "models/gemini-flash-lite-latest",
-            "models/gemini-3.1-flash-lite",
-            "models/gemini-3.8-flash"
+            "models/gemini-2.5-pro"
         ]
         if self.enabled:
             try:
