@@ -12,7 +12,7 @@ from modules.automation.insta_client import insta_manager
 from modules.ai_assistant.gemini_bot import ai_assistant
 from modules.automation.audience_engine import (
     match_keyword_intent, is_follow_confirmation, get_viral_comment_reply,
-    generate_follow_gate_message, generate_reward_unlocked_message
+    get_general_comment_reply, generate_follow_gate_message, generate_reward_unlocked_message
 )
 from modules.automation.competitor_growth import run_safe_growth_tick
 
@@ -197,13 +197,13 @@ class InstagramDirectMonitor:
             print(Fore.RED + f"  [Live Sync Error] {e}")
 
     def check_latest_comments(self):
-        """بررسی پست‌های اخیر برای کامنت‌های جدید حاوی کلمات کلیدی با موتور جذب مخاطب"""
+        """بررسی پست‌های اخیر: لایک کردن تمامی کامنت‌ها، ارسال پاسخ صمیمی و جذاب، و ارسال پکیج دایرکت در صورت وجود کلمه کلیدی"""
         try:
             user_id = self.client.user_id
-            medias = self.client.user_medias(user_id, amount=3) # ۳ پست آخر
+            medias = self.client.user_medias(user_id, amount=4) # تمام پست‌ها و ریلزهای اخیر
             
             for media in medias:
-                comments = self.client.media_comments(media.id, amount=15)
+                comments = self.client.media_comments(media.id, amount=20)
                 for c in comments:
                     cid = str(c.pk)
                     text = c.text.strip().lower()
@@ -218,48 +218,71 @@ class InstagramDirectMonitor:
                     if is_comment_processed(cid):
                         continue
 
-                    # بررسی هوشمند کلمات کلیدی، نام‌های مستعار و غلط‌های املایی
-                    matched_key, target_rule = match_keyword_intent(c.text)
-                    if not matched_key:
-                        continue
+                    print(Fore.MAGENTA + f"\n💬 کامنت جدید از @{author}: \"{c.text}\"")
 
-                    print(Fore.MAGENTA + f"\n🎯 کامنت جدید با کلمه «{matched_key}» از @{author}: \"{c.text}\"")
-
-                    # ۱. پاسخ عمومی زیر کامنت با هوش مصنوعی یا متغیرهای وایرال
+                    # ۱. الزام قطعی: حتماً کامنت مخاطب لایک شود
                     try:
-                        reply_text = ai_assistant.generate_comment_reply(c.text, author, keyword=matched_key)
-                    except Exception:
-                        reply_text = get_viral_comment_reply(author, c.text, keyword=matched_key)
+                        self.client.comment_like(int(cid))
+                        print(Fore.RED + f"  ❤️ کامنت @{author} با موفقیت لایک شد.")
+                    except Exception as el:
+                        print(Fore.YELLOW + f"  [خطای لایک کامنت] {el}")
 
+                    # بررسی کلمه کلیدی
+                    matched_key, target_rule = match_keyword_intent(c.text)
+
+                    # ۲. تولید پاسخ فوق‌العاده صمیمی و جذاب با هوش مصنوعی نکسوس
+                    try:
+                        reply_text = ai_assistant.generate_comment_reply(c.text, author, keyword=matched_key or "")
+                    except Exception:
+                        if matched_key:
+                            reply_text = get_viral_comment_reply(author, c.text, keyword=matched_key)
+                        else:
+                            reply_text = get_general_comment_reply(author, c.text)
+
+                    # ارسال ریپلای زیر کامنت
                     try:
                         self.client.media_comment(media.id, reply_text, replied_to_comment_id=int(cid))
-                        print(Fore.GREEN + f"  ✓ پاسخ وایرال زیر کامنت ارسال شد: \"{reply_text}\"")
+                        print(Fore.GREEN + f"  ✓ پاسخ صمیمی زیر کامنت ارسال شد:\n    \"{reply_text}\"")
                     except Exception as e:
                         print(Fore.RED + f"  [خطا در ارسال کامنت] {e}")
 
-                    # ۲. بررسی شرط فالو
-                    is_following = False
+                    # ۳. ارسال دایرکت (در صورت وجود کلمه کلیدی)
+                    dm_sent = False
+                    if matched_key and target_rule:
+                        is_following = False
+                        try:
+                            friendship = self.client.user_friendship_v1(author_id)
+                            is_following = bool(friendship.followed_by)
+                        except Exception as e:
+                            lead = get_user_lead(author_id)
+                            is_following = lead["is_following"] if lead else False
+
+                        if target_rule.get("require_follow", True) and not is_following:
+                            dm_msg = generate_follow_gate_message(author, matched_key)
+                            insta_manager.safe_direct_send(dm_msg, user_ids=[int(author_id)])
+                            update_user_status(author_id, author, is_following=False, keyword=matched_key, delivered=False)
+                            print(Fore.YELLOW + f"  🔒 پیام Follow-Gate برای @{author} ارسال شد.")
+                        else:
+                            dm_msg = generate_reward_unlocked_message(author, target_rule["reply_text"], keyword=matched_key)
+                            insta_manager.safe_direct_send(dm_msg, user_ids=[int(author_id)])
+                            update_user_status(author_id, author, is_following=True, keyword=matched_key, delivered=True)
+                            print(Fore.GREEN + f"  🚀 پکیج متنی اختصاصی برای @{author} در دایرکت تحویل داده شد.")
+                        dm_sent = True
+
+                    # ۴. ثبت در ژورنال کلودفلر و لاگ دیتابیس
                     try:
-                        friendship = self.client.user_friendship_v1(author_id)
-                        is_following = bool(friendship.followed_by)
-                    except Exception as e:
-                        lead = get_user_lead(author_id)
-                        is_following = lead["is_following"] if lead else False
+                        push_growth_activity(
+                            action_type="comment_reply",
+                            title=f"لایک و پاسخ به کامنت @{author}",
+                            desc=f"کامنت مخاطب لایک شد و پاسخ صمیمی داده شد: «{reply_text[:60]}...»",
+                            target=f"@{author}",
+                            source="اتوماسیون کامنت نکسوس"
+                        )
+                    except Exception:
+                        pass
 
-                    # ۳. ارسال دایرکت
-                    if target_rule.get("require_follow", True) and not is_following:
-                        dm_msg = generate_follow_gate_message(author, matched_key)
-                        insta_manager.safe_direct_send(dm_msg, user_ids=[int(author_id)])
-                        update_user_status(author_id, author, is_following=False, keyword=matched_key, delivered=False)
-                        print(Fore.YELLOW + f"  🔒 پیام Follow-Gate برای @{author} ارسال شد.")
-                    else:
-                        dm_msg = generate_reward_unlocked_message(author, target_rule["reply_text"], keyword=matched_key)
-                        insta_manager.safe_direct_send(dm_msg, user_ids=[int(author_id)])
-                        update_user_status(author_id, author, is_following=True, keyword=matched_key, delivered=True)
-                        print(Fore.GREEN + f"  🚀 هدیه اختصاصی برای @{author} در دایرکت تحویل داده شد.")
-
-                    log_comment(cid, str(media.id), author_id, author, c.text, matched_key, dm_sent=True)
-                    time.sleep(random.randint(4, 9))
+                    log_comment(cid, str(media.id), author_id, author, c.text, matched_key or "general", dm_sent=dm_sent)
+                    time.sleep(random.randint(4, 8))
 
         except Exception as e:
             print(Fore.RED + f"[خطا در پایش کامنت‌ها] {e}")
