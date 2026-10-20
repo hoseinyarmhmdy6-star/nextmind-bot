@@ -70,6 +70,13 @@ try:
                     run_safe_growth_tick(max_targets=1)
                 except Exception as eg:
                     print(f"[Cloud Growth Error] {eg}")
+
+            # 5. Dynamic Story Scanning & Golden CTA Extraction every 10 cycles (~2 min)
+            if loop_count % 10 == 0:
+                try:
+                    monitor.sync_story_triggers()
+                except Exception as est:
+                    pass
                 
             # Rest 10-14 seconds between polls
             time.sleep(12)
