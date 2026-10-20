@@ -28,6 +28,9 @@ print(f"[*] Scheduled runtime: {run_duration_minutes} minutes (until {time.strft
 
 # 3. Start Instagram Direct Monitor
 try:
+    from database import init_db
+    init_db()
+    
     from monitor_service import InstagramDirectMonitor
     from config import INSTA_USERNAME
 
