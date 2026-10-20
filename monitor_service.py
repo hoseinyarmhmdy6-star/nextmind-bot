@@ -199,13 +199,33 @@ class InstagramDirectMonitor:
             print(Fore.RED + f"  [Live Sync Error] {e}")
 
     def check_latest_comments(self):
-        """بررسی پست‌های اخیر: لایک کردن تمامی کامنت‌ها، ارسال پاسخ صمیمی و جذاب، و ارسال پکیج دایرکت در صورت وجود کلمه کلیدی"""
+        """بررسی تمامی پست‌ها و ریلزها: لایک کردن فوری تمام کامنت‌ها، ارسال پاسخ یکتا و پکیج دایرکت"""
         try:
             user_id = self.client.user_id
-            medias = self.client.user_medias(user_id, amount=4) # تمام پست‌ها و ریلزهای اخیر
+            all_media = []
+            try:
+                all_media.extend(self.client.user_medias(user_id, amount=6))
+            except Exception:
+                pass
+            try:
+                all_media.extend(self.client.user_clips(user_id, amount=6))
+            except Exception:
+                pass
+
+            # حذف شناسه‌های تکراری پست‌ها و ریلزها
+            seen_mids = set()
+            unique_medias = []
+            for m in all_media:
+                if m.id not in seen_mids:
+                    seen_mids.add(m.id)
+                    unique_medias.append(m)
+            medias = unique_medias
             
             for media in medias:
-                comments = self.client.media_comments(media.id, amount=20)
+                try:
+                    comments = self.client.media_comments(media.id, amount=35)
+                except Exception:
+                    continue
                 for c in comments:
                     cid = str(c.pk)
                     text = c.text.strip().lower()
