@@ -26,16 +26,47 @@ def normalize_persian(text: str) -> str:
     # ۴. حروف کوچک و حذف فاصله‌های اضافی
     return t.strip().lower()
 
-def match_keyword_intent(text: str) -> tuple:
+def match_keyword_intent(text: str, media_id: str = None) -> tuple:
     """
-    تشخیص قصد مخاطب و استخراج کلمه کلیدی با انعطاف‌پذیری نسبت به غلط‌های املایی،
-    اصطلاحات عامیانه و مترادف‌های انگلیسی و فارسی
+    تشخیص قصد مخاطب و استخراج کلمه کلیدی با پشتیبانی از کلمات طلایی دینامیک ریلزها و استوری‌ها،
+    انعطاف‌پذیری نسبت به غلط‌های املایی، اصطلاحات عامیانه و مترادف‌های انگلیسی و فارسی
     """
     if not text:
         return None, None
         
     norm_text = normalize_persian(text)
     tokens = re.findall(r"[\w\u0600-\u06FF]+", norm_text)
+
+    # اولویت ۰: بررسی کلمه طلایی اختصاصی این پست/ریلز خاص (در صورت وجود media_id)
+    try:
+        from database import get_dynamic_trigger_by_media, get_all_dynamic_triggers
+        if media_id:
+            dyn = get_dynamic_trigger_by_media(media_id)
+            if dyn and dyn.get("keyword"):
+                dkw = normalize_persian(dyn["keyword"])
+                aliases = [normalize_persian(a) for a in dyn.get("aliases", "").split(",") if a]
+                if dkw in norm_text or any(dkw == tok for tok in tokens) or any(a in norm_text for a in aliases):
+                    rule = {
+                        "reply_text": dyn.get("package_text") or KEYWORD_TRIGGERS.get("کد", {}).get("reply_text"),
+                        "require_follow": True
+                    }
+                    return dyn["keyword"], rule
+
+        # اولویت ۰.۵: بررسی تمامی کلمات طلایی استخراج‌شده از سایر ریلزها و استوری‌ها
+        all_dyn = get_all_dynamic_triggers()
+        for dyn in all_dyn:
+            dkw = normalize_persian(dyn.get("keyword", ""))
+            if not dkw:
+                continue
+            aliases = [normalize_persian(a) for a in dyn.get("aliases", "").split(",") if a]
+            if dkw in norm_text or any(dkw == tok for tok in tokens) or any(a in norm_text for a in aliases):
+                rule = {
+                    "reply_text": dyn.get("package_text") or KEYWORD_TRIGGERS.get("کد", {}).get("reply_text"),
+                    "require_follow": True
+                }
+                return dyn["keyword"], rule
+    except Exception:
+        pass
 
     # اولویت ۱: جستجوی نام‌های مستعار و کلمات کلیدی
     for canon_kw, aliases in KEYWORD_ALIASES.items():
