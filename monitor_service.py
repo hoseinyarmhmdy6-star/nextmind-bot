@@ -111,6 +111,25 @@ def push_growth_activity(action_type: str, title: str, desc: str, target: str, s
     except Exception:
         pass
 
+def is_user_asking_question(text: str) -> bool:
+    """بررسی هوشمند و دقیق اینکه آیا متن کامنت یا پیام حاوی پرسش یا نیاز به راهنمایی تخصصی است"""
+    if not text:
+        return False
+    t = text.lower().strip()
+    if any(q in t for q in ["?", "؟"]):
+        return True
+    question_indicators = [
+        "چطور", "چطوری", "چگونه", "کجا", "کدوم", "کدام", "چیه", "چیست", "رایگانه", "رایگان",
+        "هزینه", "قیمت", "خرید", "اشتراک", "پولی", "ایفون", "آیفون", "اندروید", "ویندوز", "مک",
+        "گوشی", "موبایل", "لپتاپ", "لپ‌تاپ", "سیستم", "اسم", "نام", "سایت", "اپلیکیشن", "برنامه",
+        "نرم‌افزار", "ابزار", "ربات", "روش", "راهکار", "چیکار", "چه کار", "چکار", "چیکار کنم",
+        "حل", "مشکل", "ارور", "خطا", "باز نمیشه", "کار نمیکنه", "ثبت نام", "ورود", "چرا",
+        "میشه", "نمیشه", "میشه بگی", "میتونی", "میشه توضیح", "اموزش", "آموزش", "چند", "کی",
+        "چه جوری", "چه شکلی", "چه طوری", "بهترین", "فیلتر", "بدون فیلتر", "فیلترشکن", "vpn",
+        "وی پی ان", "تحریم", "پست بعدی", "لینکش", "لینک", "کدوم سایت"
+    ]
+    return any(w in t for w in question_indicators)
+
 class InstagramDirectMonitor:
     def __init__(self):
         self.client = insta_manager.client
@@ -252,7 +271,7 @@ class InstagramDirectMonitor:
                     # ۲. قانون قطعی: خوش‌آمدگویی کلاً به هر اکانت فقط یک‌بار در تمام پیج داده می‌شود
                     already_welcomed_in_comment = has_user_received_comment_welcome(author_id, author)
                     matched_key, target_rule = match_keyword_intent(c.text)
-                    is_question = any(q in c.text for q in ["?", "؟", "چطور", "چطوری", "چگونه", "کجا", "کدوم", "چیه", "چیست", "رایگانه", "هزینه", "ایفون", "آیفون", "اندروید", "اسم"])
+                    is_question = is_user_asking_question(c.text)
 
                     # اگر کاربر قبلاً خوش‌آمدگویی دریافت کرده است (در این پست یا هر پست دیگر) و کامنت جدید صرفاً نظر/ایموجی است (سوال یا کلمه کلیدی نیست):
                     if already_welcomed_in_comment and not is_question and not matched_key:
@@ -262,19 +281,20 @@ class InstagramDirectMonitor:
                         continue
 
                     # اگر کاربر زیر همین پست قبلاً پاسخ گرفته و سوالی نپرسیده است:
-                    if has_user_commented_on_post(str(media.id), author_id) and not is_question:
+                    if has_user_commented_on_post(str(media.id), author_id) and not is_question and not matched_key:
                         print(Fore.YELLOW + f"  ℹ️ به کاربر @{author} قبلاً زیر این پست پاسخ داده شده است. کامنت لایک شد ولی پاسخ تکراری ارسال نشد.")
                         log_comment(cid, str(media.id), author_id, author, c.text, "already_replied", dm_sent=False)
                         time.sleep(random.randint(2, 4))
                         continue
 
-                    # ۳. تولید پاسخ دقیق، خیلی خلاصه و مفید در یک پیام واحد با بررسی کامل سوال و کپشن
+                    # ۳. تولید پاسخ تخصصی، بسیار خلاصه و مفید مانند یک متخصص مسلط هوش مصنوعی
                     post_caption = getattr(media, 'caption_text', '') or ""
                     try:
                         reply_text = ai_assistant.generate_comment_reply(
-                            c.text, author, keyword=matched_key or "", post_context=post_caption[:300]
+                            c.text, author, keyword=matched_key or "", post_context=post_caption[:300], is_first_contact=(not already_welcomed_in_comment)
                         )
-                    except Exception:
+                    except Exception as ex:
+                        print(Fore.YELLOW + f"  [خطای تولید پاسخ AI کامنت: {ex}]")
                         if matched_key:
                             reply_text = get_viral_comment_reply(author, c.text, keyword=matched_key)
                         else:
@@ -284,7 +304,7 @@ class InstagramDirectMonitor:
                     try:
                         self.client.media_comment(media.id, reply_text, replied_to_comment_id=int(cid))
                         mark_user_welcomed_in_comment(author_id, author)
-                        print(Fore.GREEN + f"  ✓ پاسخ صمیمانه-رسمی زیر کامنت ارسال شد:\n    \"{reply_text}\"")
+                        print(Fore.GREEN + f"  ✓ پاسخ تخصصی و باوقار زیر کامنت ارسال شد:\n    \"{reply_text}\"")
                     except Exception as e:
                         print(Fore.RED + f"  [خطا در ارسال کامنت] {e}")
 
