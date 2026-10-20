@@ -237,9 +237,12 @@ class InstagramDirectMonitor:
                     # بررسی کلمه کلیدی
                     matched_key, target_rule = match_keyword_intent(c.text)
 
-                    # ۳. تولید پاسخ صمیمانه ولی رسمی و باوقار با هوش مصنوعی نکسوس
+                    # ۳. تولید پاسخ دقیق، خیلی خلاصه و مفید در یک پیام واحد با بررسی کامل سوال و کپشن
+                    post_caption = getattr(media, 'caption_text', '') or ""
                     try:
-                        reply_text = ai_assistant.generate_comment_reply(c.text, author, keyword=matched_key or "")
+                        reply_text = ai_assistant.generate_comment_reply(
+                            c.text, author, keyword=matched_key or "", post_context=post_caption[:300]
+                        )
                     except Exception:
                         if matched_key:
                             reply_text = get_viral_comment_reply(author, c.text, keyword=matched_key)
