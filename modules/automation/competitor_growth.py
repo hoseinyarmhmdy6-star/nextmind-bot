@@ -57,11 +57,12 @@ def run_safe_growth_tick(max_targets: int = 1):
     """
     اجرای یک مرحله جذب ارگانیک و ایمن با رعایت کامل سقف روزانه اینستاگرام (Anti-Ban)
     """
-    today_followed = get_today_followed_count()
-    max_daily = SAFETY_SETTINGS.get("max_follows_per_day", 30)
+    # سیاست قطعی و بدون تغییر: پیج @nextmind.hq هرگز هیچ کاربری را فالو نمی‌کند (Zero Following)
+    # کنترل ایمنی صرفاً بر اساس سقف لایک و تعامل ارگانیک روزانه انجام می‌شود
+    max_daily_engagements = SAFETY_SETTINGS.get("max_likes_per_day", 60)
+    today_engaged = get_today_followed_count()
 
-    if today_followed >= max_daily:
-        # سقف روزانه پر شده، برای حفظ ۱۰۰٪ امنیت پیج متوقف می‌شود
+    if today_engaged >= max_daily_engagements:
         return 0
 
     pending = get_pending_competitor_leads(limit=max_targets)
@@ -95,12 +96,17 @@ def run_safe_growth_tick(max_targets: int = 1):
             except Exception:
                 pass
 
-            # ۲. فالو ایمن کاربر
+            # ۲. مشاهده هوشمند استوری کاربر هدف برای قرارگیری نام @nextmind.hq در لیست بازدیدکنندگان (۱۰۰٪ بدون فالو)
             try:
-                client.user_follow(int(uid))
-                print(f"[Growth]  ✓ کاربر @{username} با موفقیت فالو شد.")
-            except Exception as ef:
-                print(f"[Growth]  [خطا در فالو] {ef}")
+                user_stories = client.user_stories(int(uid))
+                if user_stories:
+                    story_ids = [s.id for s in user_stories[:2]]
+                    client.story_seen(story_ids)
+                    print(f"[Growth]  👁️ استوری کاربر @{username} مشاهده شد (جذب ارگانیک بدون فالو).")
+            except Exception:
+                pass
+
+            # ⛔ قانون ممنوعیت مطلق فالو: پیج @nextmind.hq هیچ کاربری را فالو نمی‌کند تا Following همیشه صفر بماند.
 
             mark_lead_followed(uid, liked_count=liked_count)
             engaged_count += 1
@@ -108,11 +114,11 @@ def run_safe_growth_tick(max_targets: int = 1):
             try:
                 from monitor_service import push_growth_activity
                 push_growth_activity(
-                    action_type="interaction",
-                    title="تعامل ارگانیک امن با مخاطب رقیب",
-                    desc=f"لایک محتوا و تعامل طبیعی با مخاطب هدف @{username} با رعایت فاصله‌های هوشمند الگوریتم.",
+                    action_type="story_view",
+                    title="تعامل ارگانیک بدون فالو (مشاهده استوری و لایک)",
+                    desc=f"لایک محتوا و مشاهده استوری مخاطب هدف @{username} با رعایت کامل سقف ایمنی و حفظ عدد صفر فالووینگ پیج.",
                     target=f"@{username}",
-                    source="پایشگر زنده اینستاگرام"
+                    source="موتور جذب بدون فالو"
                 )
             except Exception:
                 pass
