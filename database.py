@@ -97,8 +97,60 @@ def init_db():
 
     conn.commit()
     conn.close()
+    
+    # همگام‌سازی ابری حافظه ضداسپم برای جلوگیری از ارسال پیام‌های تکراری و بی‌مورد
+    sync_processed_from_cloud()
 
-def is_slot_published(slot_name: str, date_str: str) -> bool:
+def push_processed_to_cloud(comment_id: str = None, user_id: str = None, dm_id: str = None):
+    """ذخیره شناسه پردازش‌شده در حافظه ابری کلودفلر تا در هیچ کانتینری در گیت‌هاب اکشن پیام تکراری ارسال نشود"""
+    try:
+        import urllib.request, json
+        payload = {}
+        if comment_id: payload["comment_id"] = str(comment_id)
+        if user_id: payload["user_id"] = str(user_id)
+        if dm_id: payload["dm_id"] = str(dm_id)
+        if not payload: return
+        req = urllib.request.Request(
+            "https://nextmind-bot.hoseinyarmhmdy6.workers.dev/api/processed-ids",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+        )
+        urllib.request.urlopen(req, timeout=4)
+    except Exception:
+        pass
+
+def sync_processed_from_cloud():
+    """همگام‌سازی بلادرنگ حافظه ضداسپم از سرور ابری کلودفلر به دیتابیس لوکال (حیاتی برای گیت‌هاب اکشن)"""
+    try:
+        import urllib.request, json
+        req = urllib.request.Request(
+            "https://nextmind-bot.hoseinyarmhmdy6.workers.dev/api/processed-ids",
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        res = urllib.request.urlopen(req, timeout=4)
+        data = json.loads(res.read())
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # ثبت کامنت‌های پردازش‌شده در حافظه دائم
+        for cid in data.get("comments", []):
+            cursor.execute("""
+                INSERT OR IGNORE INTO processed_comments (comment_id, post_id, user_id, username, comment_text, keyword_matched, dm_sent)
+                VALUES (?, 'cloud_synced', 'cloud_user', 'synced', 'cloud comment', 'synced', 1)
+            """, (str(cid),))
+
+        # ثبت کاربرانی که پکیج را دریافت کرده‌اند (جلوگیری قطعی از ارسال مجدد دایرکت)
+        for uid in data.get("delivered_users", []):
+            cursor.execute("""
+                INSERT INTO leads (user_id, username, is_following, last_keyword, lead_magnet_delivered)
+                VALUES (?, 'protected_user', 1, 'protected', 1)
+                ON CONFLICT(user_id) DO UPDATE SET lead_magnet_delivered = 1
+            """, (str(uid),))
+
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM published_schedule WHERE slot_name = ? AND date_str = ?", (slot_name, date_str))
@@ -159,6 +211,7 @@ def log_comment(comment_id: str, post_id: str, user_id: str, username: str, comm
     """, (comment_id, post_id, user_id, username, comment_text, keyword, 1 if dm_sent else 0))
     conn.commit()
     conn.close()
+    push_processed_to_cloud(comment_id=comment_id, user_id=user_id)
 
 def update_user_status(user_id: str, username: str, is_following: bool = False, keyword: str = None, delivered: bool = False):
     conn = get_connection()
@@ -175,6 +228,8 @@ def update_user_status(user_id: str, username: str, is_following: bool = False, 
     """, (user_id, username, 1 if is_following else 0, keyword, 1 if delivered else 0))
     conn.commit()
     conn.close()
+    if delivered:
+        push_processed_to_cloud(user_id=user_id)
 
 def get_user_lead(user_id: str):
     conn = get_connection()
