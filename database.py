@@ -151,6 +151,8 @@ def sync_processed_from_cloud():
         conn.close()
     except Exception:
         pass
+
+def is_slot_published(slot_name: str, date_str: str) -> bool:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM published_schedule WHERE slot_name = ? AND date_str = ?", (slot_name, date_str))
@@ -198,6 +200,18 @@ def is_comment_processed(comment_id: str) -> bool:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM processed_comments WHERE comment_id = ?", (comment_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res is not None
+
+def has_user_commented_on_post(post_id: str, user_id: str) -> bool:
+    """بررسی اینکه آیا ربات قبلاً به این کاربر زیر این پست یا ریلز پاسخ داده است (قانون پاسخ یکباره به هر نفر زیر یک پست)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 1 FROM processed_comments 
+        WHERE post_id = ? AND user_id = ? AND keyword_matched != 'already_replied'
+    """, (str(post_id), str(user_id)))
     res = cursor.fetchone()
     conn.close()
     return res is not None
