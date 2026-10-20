@@ -305,7 +305,26 @@ class InstagramDirectMonitor:
     def check_direct_messages(self):
         """پایش صندوق دایرکت برای پاسخ به سوالات با هوش مصنوعی، تایید فالو و ارسال کلمات کلیدی"""
         try:
-            threads = self.client.direct_threads(amount=8)
+            threads = []
+            try:
+                threads.extend(self.client.direct_threads(amount=8))
+            except Exception:
+                pass
+
+            try:
+                threads.extend(self.client.direct_pending_inbox(amount=8))
+            except Exception:
+                pass
+
+            # حذف شناسه‌های تکراری تردها
+            seen_tids = set()
+            unique_threads = []
+            for t in threads:
+                if t.id not in seen_tids:
+                    seen_tids.add(t.id)
+                    unique_threads.append(t)
+            threads = unique_threads
+
             for t in threads:
                 if not t.messages:
                     continue
@@ -315,7 +334,11 @@ class InstagramDirectMonitor:
                 if str(last_msg.user_id) == str(self.client.user_id):
                     continue
 
+                item_type = getattr(last_msg, 'item_type', '')
                 msg_text = (last_msg.text or "").strip()
+                if not msg_text and item_type in ['story_share', 'clip']:
+                    msg_text = "استوری منشن شما"
+
                 if not msg_text:
                     continue
 
