@@ -81,6 +81,15 @@ def is_follow_confirmation(text: str) -> bool:
 
     return False
 
+GENERAL_COMMENT_REPLIES = [
+    "مرسی از انرژی زیبات @{username} جان! ❤️ خوشحالیم که کنار مایی ✨",
+    "عشق منی @{username} عزیز! 🌟 اگه پکیج پرامپت‌های پولساز رو می‌خوای کلمه «کد» رو بنویس تا برات دایرکت بفرستم 😉🚀",
+    "خیلی مخلصی رفیق! 🔥 پرانرژی باشی همیشه 🧠⚡",
+    "دمت گرم @{username} عزیز! مرسی از نگاه قشنگت ❤️ با ما همراه باش که کلی تکنیک خفن تو راهه 🚀",
+    "ممنون از همراهیت @{username} گل! 💎 برای دریافت ابزارهای معرفی‌شده کافیه کلمه «کد» رو کامنت کنی 😉✨",
+    "انرژیت فوق‌العادست @{username}! ⚡️ امیدوارم به دردت بخوره و بهترین استفاده رو ازش ببری 🧠",
+]
+
 def get_viral_comment_reply(username: str, comment_text: str = "", keyword: str = None) -> str:
     """
     تولید پاسخ‌های پرانرژی، متغیر و بهینه‌شده برای الگوریتم اکسپلور اینستاگرام
@@ -88,6 +97,13 @@ def get_viral_comment_reply(username: str, comment_text: str = "", keyword: str 
     template = random.choice(COMMENT_REPLY_VARIATIONS)
     reply = template.format(username=f"@{username}" if username else "دوست")
     return reply
+
+def get_general_comment_reply(username: str, comment_text: str = "") -> str:
+    """
+    تولید پاسخ صمیمی، قدردان و خودمانی به کامنت‌های عمومی کاربران
+    """
+    template = random.choice(GENERAL_COMMENT_REPLIES)
+    return template.format(username=f"{username}" if username else "دوست")
 
 def generate_follow_gate_message(author: str, keyword: str) -> str:
     """
