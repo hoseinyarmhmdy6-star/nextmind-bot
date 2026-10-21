@@ -56,30 +56,22 @@ try:
             if loop_count % 4 == 0:
                 monitor.check_latest_comments()
 
-            # 3. Live Sync stats to Cloudflare KV every 8 cycles (~1.5 min)
-            if loop_count % 8 == 0:
+            # 3. Live Sync stats to Cloudflare KV every 20 cycles (~8-10 min)
+            if loop_count % 20 == 0:
                 try:
                     monitor.sync_live_profile()
                 except Exception as es:
                     print(f"[Cloud Live Sync Error] {es}")
 
-            # 4. 24/7 Organic Growth & High-Impact Audience Acquisition from live competitors every 4 cycles (~50s)
-            if loop_count % 4 == 0:
-                try:
-                    from modules.automation.competitor_growth import run_safe_growth_tick
-                    run_safe_growth_tick(max_targets=1)
-                except Exception as eg:
-                    print(f"[Cloud Growth Error] {eg}")
-
-            # 5. Dynamic Story Scanning & Golden CTA Extraction every 10 cycles (~2 min)
-            if loop_count % 10 == 0:
+            # 4. Dynamic Story Scanning & Golden CTA Extraction every 20 cycles (~8-10 min)
+            if loop_count % 20 == 0:
                 try:
                     monitor.sync_story_triggers()
                 except Exception as est:
                     pass
                 
-            # Rest 10-14 seconds between polls
-            time.sleep(12)
+            # Safe human rest 20-35 seconds between polls
+            time.sleep(25)
             
         except Exception as e:
             print(f"[Loop Exception] {e}")
